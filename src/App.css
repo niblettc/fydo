@@ -35,10 +35,87 @@
   margin: 0 0 24px;
 }
 
-.connect-card form {
+.connect-card form,
+.connect-section {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.connect-section + .connect-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.token-row {
+  display: flex;
+  gap: 8px;
+}
+
+.token-row input {
+  flex: 1;
+}
+
+.token-row .btn {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  white-space: nowrap;
+}
+
+.discover-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.repo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.repo-list li + li {
+  border-top: 1px solid var(--border);
+}
+
+.repo-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+
+.repo-row:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.repo-row:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.repo-row-name {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-row-pushed {
+  flex-shrink: 0;
 }
 
 .connect-card label {

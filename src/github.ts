@@ -23,6 +23,15 @@ export interface CommitDetail extends CommitListItem {
   }>
 }
 
+export interface RepoListItem {
+  fullName: string
+  owner: string
+  repo: string
+  private: boolean
+  description: string | null
+  pushedAt: string
+}
+
 export class GitHubError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -73,6 +82,41 @@ export class GitHubClient {
       throw new GitHubError(res.status, message)
     }
     return res.json() as Promise<T>
+  }
+
+  async getUser(): Promise<{ login: string; avatarUrl: string }> {
+    const data = await this.request<{ login: string; avatar_url: string }>('/user')
+    return { login: data.login, avatarUrl: data.avatar_url }
+  }
+
+  async getUserRepos(): Promise<RepoListItem[]> {
+    const repos: RepoListItem[] = []
+    for (let page = 1; page <= 5; page++) {
+      const data = await this.request<
+        Array<{
+          full_name: string
+          owner: { login: string }
+          name: string
+          private: boolean
+          description: string | null
+          pushed_at: string
+        }>
+      >(
+        `/user/repos?per_page=100&page=${page}&sort=pushed&affiliation=owner,collaborator,organization_member`,
+      )
+      repos.push(
+        ...data.map((r) => ({
+          fullName: r.full_name,
+          owner: r.owner.login,
+          repo: r.name,
+          private: r.private,
+          description: r.description,
+          pushedAt: r.pushed_at,
+        })),
+      )
+      if (data.length < 100) break
+    }
+    return repos
   }
 
   async getRepo(owner: string, repo: string): Promise<RepoInfo> {
