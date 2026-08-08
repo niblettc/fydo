@@ -25,8 +25,29 @@ const detail = {
 const added = parseAddedLines(patch)
 console.log(`added lines parsed: ${added.length} (expect 7), first line number: ${added[0].lineNumber} (expect 11)`)
 
-const findings = analyzeCommit(detail)
+const report = analyzeCommit(detail)
+const findings = report.findings
 console.log(`status: ${statusForFindings(findings)} (expect fail)`)
+console.log(
+  `evidence: ${report.totalLinesChecked} lines checked (expect 6), ` +
+    `${report.totalRulesEvaluated} rules evaluated, ` +
+    `${report.fileScans.length} file scans (expect 1)`,
+)
+const scan = report.fileScans[0]
+if (!scan.scanned || scan.addedLines !== 6 || scan.commentLinesSkipped !== 1) {
+  console.error(`FAIL: unexpected file scan record: ${JSON.stringify(scan)}`)
+  process.exit(1)
+}
+const sqlRule = report.ruleResults.find((r) => r.ruleId === 'A03-001')
+if (!sqlRule || sqlRule.hits !== 1 || sqlRule.linesChecked !== 6 || sqlRule.filesChecked !== 1) {
+  console.error(`FAIL: unexpected rule result for A03-001: ${JSON.stringify(sqlRule)}`)
+  process.exit(1)
+}
+const passingRule = report.ruleResults.find((r) => r.ruleId === 'A08-001')
+if (!passingRule || passingRule.hits !== 0 || passingRule.linesChecked !== 6) {
+  console.error(`FAIL: passing rule should show 6 lines checked with 0 hits: ${JSON.stringify(passingRule)}`)
+  process.exit(1)
+}
 console.log(`findings: ${findings.length}`)
 for (const f of findings) {
   console.log(`  [${f.severity}] ${f.owaspId} ${f.ruleId} ${f.title} @ ${f.file}:${f.line}`)

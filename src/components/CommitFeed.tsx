@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { categoryById } from '../compliance/owasp'
-import type { AnalyzedCommit, CommitStatus, Finding } from '../types'
+import { OWASP_CATEGORIES, categoryById } from '../compliance/owasp'
+import type { AnalysisReport, AnalyzedCommit, CommitStatus, FileScan, Finding } from '../types'
 
 const STATUS_LABEL: Record<CommitStatus, string> = {
   pass: 'Compliant',
@@ -8,6 +8,12 @@ const STATUS_LABEL: Record<CommitStatus, string> = {
   fail: 'Violations',
   analyzing: 'Analyzing…',
   error: 'Error',
+}
+
+const SKIP_REASON_LABEL: Record<NonNullable<FileScan['skipReason']>, string> = {
+  'no-diff': 'no text diff available',
+  removed: 'file deleted',
+  'no-applicable-rules': 'no rules apply to this file type',
 }
 
 function timeAgo(iso: string): string {
@@ -42,9 +48,137 @@ function FindingRow({ finding }: { finding: Finding }) {
   )
 }
 
+function CategoryEvidence({ report }: { report: AnalysisReport }) {
+  const [openCategory, setOpenCategory] = useState<string | null>(null)
+
+  return (
+    <div className="evidence-categories">
+      {OWASP_CATEGORIES.map((cat) => {
+        const rules = report.ruleResults.filter((r) => r.owaspId === cat.id)
+        const evaluated = rules.filter((r) => r.filesChecked > 0)
+        const hits = rules.reduce((n, r) => n + r.hits, 0)
+        const open = openCategory === cat.id
+        const state = evaluated.length === 0 ? 'na' : hits > 0 ? 'fail' : 'pass'
+        return (
+          <div key={cat.id} className={`evidence-cat ${state}`}>
+            <button
+              className="evidence-cat-head"
+              onClick={() => setOpenCategory(open ? null : cat.id)}
+              aria-expanded={open}
+            >
+              <span className={`evidence-mark ${state}`}>
+                {state === 'pass' ? '✓' : state === 'fail' ? '✗' : '–'}
+              </span>
+              <span className="baseline-code">{cat.code}</span>
+              <span className="evidence-cat-name">{cat.name}</span>
+              <span className="muted small-text">
+                {state === 'na'
+                  ? 'not applicable to changed files'
+                  : hits > 0
+                    ? `${hits} match${hits === 1 ? '' : 'es'} from ${evaluated.length} rule${evaluated.length === 1 ? '' : 's'}`
+                    : `${evaluated.length} rule${evaluated.length === 1 ? '' : 's'} checked, 0 matches`}
+              </span>
+              <span className="chevron">{open ? '▾' : '▸'}</span>
+            </button>
+            {open && (
+              <ul className="evidence-rules">
+                {rules.map((r) => (
+                  <li key={r.ruleId} className={r.hits > 0 ? 'rule-hit' : ''}>
+                    <span className={`evidence-mark small ${r.filesChecked === 0 ? 'na' : r.hits > 0 ? 'fail' : 'pass'}`}>
+                      {r.filesChecked === 0 ? '–' : r.hits > 0 ? '✗' : '✓'}
+                    </span>
+                    <span className="mono rule-id">{r.ruleId}</span>
+                    <span className="rule-title">{r.title}</span>
+                    <span className="muted small-text">
+                      {r.filesChecked === 0
+                        ? 'no matching files'
+                        : `${r.linesChecked} line${r.linesChecked === 1 ? '' : 's'} in ${r.filesChecked} file${r.filesChecked === 1 ? '' : 's'}${r.hits > 0 ? ` · ${r.hits} match${r.hits === 1 ? '' : 'es'}` : ''}`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function FileScanList({ scans }: { scans: FileScan[] }) {
+  return (
+    <ul className="evidence-files">
+      {scans.map((f) => (
+        <li key={f.filename} className={f.scanned ? '' : 'file-skipped'}>
+          <span className={`evidence-mark small ${f.scanned ? (f.hits > 0 ? 'fail' : 'pass') : 'na'}`}>
+            {f.scanned ? (f.hits > 0 ? '✗' : '✓') : '–'}
+          </span>
+          <span className="mono file-name">{f.filename}</span>
+          <span className="muted small-text">
+            {f.scanned
+              ? `${f.addedLines} added line${f.addedLines === 1 ? '' : 's'} × ${f.rulesApplied} rules` +
+                (f.commentLinesSkipped > 0 ? ` (${f.commentLinesSkipped} comment lines skipped)` : '') +
+                (f.hits > 0 ? ` · ${f.hits} match${f.hits === 1 ? '' : 'es'}` : '')
+              : `skipped — ${SKIP_REASON_LABEL[f.skipReason ?? 'no-diff']}`}
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function EvidencePanel({ commit }: { commit: AnalyzedCommit }) {
+  const report = commit.report
+  if (!report) return null
+
+  const scannedFiles = report.fileScans.filter((f) => f.scanned).length
+
+  return (
+    <div className="evidence">
+      <p className="evidence-summary">
+        {commit.status === 'pass' ? (
+          <>
+            <strong>Why this commit is compliant:</strong> {report.totalLinesChecked} added line
+            {report.totalLinesChecked === 1 ? '' : 's'} across {scannedFiles} file
+            {scannedFiles === 1 ? '' : 's'} were evaluated against {report.totalRulesEvaluated}{' '}
+            applicable OWASP Top 10 rule{report.totalRulesEvaluated === 1 ? '' : 's'}, with zero
+            matches.
+          </>
+        ) : (
+          <>
+            <strong>Evidence:</strong> {report.totalLinesChecked} added line
+            {report.totalLinesChecked === 1 ? '' : 's'} across {scannedFiles} file
+            {scannedFiles === 1 ? '' : 's'} evaluated against {report.totalRulesEvaluated} applicable
+            rule{report.totalRulesEvaluated === 1 ? '' : 's'} — {report.findings.length} match
+            {report.findings.length === 1 ? '' : 'es'} found.
+          </>
+        )}{' '}
+        <span className="muted">Analyzed {new Date(report.analyzedAt).toLocaleString()}.</span>
+      </p>
+
+      {report.findings.length > 0 && (
+        <>
+          <h3 className="evidence-heading">Findings ({report.findings.length})</h3>
+          <div className="findings">
+            {report.findings.map((f, i) => (
+              <FindingRow key={`${f.ruleId}-${f.file}-${f.line}-${i}`} finding={f} />
+            ))}
+          </div>
+        </>
+      )}
+
+      <h3 className="evidence-heading">Rule evaluation by OWASP category</h3>
+      <CategoryEvidence report={report} />
+
+      <h3 className="evidence-heading">Files in this commit ({report.fileScans.length})</h3>
+      <FileScanList scans={report.fileScans} />
+    </div>
+  )
+}
+
 function CommitCard({ commit }: { commit: AnalyzedCommit }) {
   const [open, setOpen] = useState(false)
-  const clickable = commit.findings.length > 0
+  const clickable = commit.report != null
 
   return (
     <li className={`commit-card status-${commit.status}`}>
@@ -87,13 +221,7 @@ function CommitCard({ commit }: { commit: AnalyzedCommit }) {
         </div>
       </button>
       {commit.status === 'error' && <div className="commit-error">{commit.error}</div>}
-      {open && (
-        <div className="findings">
-          {commit.findings.map((f, i) => (
-            <FindingRow key={`${f.ruleId}-${f.file}-${f.line}-${i}`} finding={f} />
-          ))}
-        </div>
-      )}
+      {open && <EvidencePanel commit={commit} />}
       <a
         className="commit-link"
         href={commit.url}

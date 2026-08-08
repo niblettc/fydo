@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { analyzeCommit, sortFindings, statusForFindings } from '../compliance/analyzer'
+import { analyzeCommit, statusForFindings } from '../compliance/analyzer'
 import type { GitHubClient } from '../github'
 import type { AnalyzedCommit, RepoInfo } from '../types'
 
@@ -74,14 +74,15 @@ export function useMonitor(
 
             try {
               const detail = await client.getCommit(repo.owner, repo.repo, item.sha)
-              const findings = sortFindings(analyzeCommit(detail))
+              const report = analyzeCommit(detail)
               setCommits((prev) =>
                 prev.map((c) =>
                   c.sha === item.sha && c.branch === branch
                     ? {
                         ...c,
-                        status: statusForFindings(findings),
-                        findings,
+                        status: statusForFindings(report.findings),
+                        findings: report.findings,
+                        report,
                         filesChanged: detail.files?.length ?? 0,
                         additions: detail.stats?.additions ?? 0,
                         deletions: detail.stats?.deletions ?? 0,

@@ -34,6 +34,42 @@ export interface Finding {
 
 export type CommitStatus = 'pass' | 'warn' | 'fail' | 'analyzing' | 'error'
 
+/** Evaluation outcome for a single rule across the whole commit diff. */
+export interface RuleResult {
+  ruleId: string
+  owaspId: string
+  title: string
+  severity: Severity
+  /** Number of files whose paths this rule applied to */
+  filesChecked: number
+  /** Added lines the rule's pattern was evaluated against */
+  linesChecked: number
+  /** Number of matches (findings) produced */
+  hits: number
+}
+
+/** Per-file scan record explaining what was (or wasn't) analyzed. */
+export interface FileScan {
+  filename: string
+  scanned: boolean
+  /** Reason the file was skipped, when scanned is false */
+  skipReason?: 'no-diff' | 'removed' | 'no-applicable-rules'
+  addedLines: number
+  commentLinesSkipped: number
+  rulesApplied: number
+  hits: number
+}
+
+/** Full evidence trail for one commit's compliance analysis. */
+export interface AnalysisReport {
+  findings: Finding[]
+  ruleResults: RuleResult[]
+  fileScans: FileScan[]
+  totalLinesChecked: number
+  totalRulesEvaluated: number
+  analyzedAt: string
+}
+
 export interface AnalyzedCommit {
   sha: string
   branch: string
@@ -44,6 +80,7 @@ export interface AnalyzedCommit {
   url: string
   status: CommitStatus
   findings: Finding[]
+  report?: AnalysisReport
   filesChanged: number
   additions: number
   deletions: number
