@@ -8,6 +8,8 @@ A React web app that connects to a GitHub repository, monitors commits landing o
 - **Monitor one or more branches.** New commits are picked up automatically on a configurable polling interval (30s–5m), and you can trigger a check on demand.
 - **OWASP Top 10 compliance analysis.** Each commit's diff is scanned by a rules engine covering all ten 2021 categories (A01–A10) — hardcoded secrets, SQL/command injection patterns, weak crypto, disabled TLS verification, insecure deserialization, SSRF patterns, and more. Findings include the file, line, code snippet, severity, OWASP category, and remediation guidance.
 - **Compliance dashboard** with per-commit pass/warn/fail status, aggregate stats, and a baseline panel showing which OWASP categories have violations.
+- **Evidence trail per commit.** Expanding a commit shows exactly why it passed or failed: per-rule evaluation counts, the specific matched lines of code per rule, and every file's scan record.
+- **Optional AI review (Anthropic).** Paste an Anthropic API key and Claude triages each finding against the actual diff — marking it confirmed, false positive, or needs review, with an explanation and suggested action — plus an overall risk rating and any issues the pattern rules missed. Reviews are saved in localStorage per repo, so they persist across reloads. The key is stored only in your browser and sent only to `api.anthropic.com`.
 
 ## Getting started
 

@@ -123,6 +123,7 @@ export function analyzeCommit(detail: CommitDetail): AnalysisReport {
       commentLinesSkipped,
       rulesApplied: rules.length,
       hits: fileHits,
+      patch: file.patch.slice(0, 4000),
     })
   }
 

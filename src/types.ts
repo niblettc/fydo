@@ -58,6 +58,29 @@ export interface FileScan {
   commentLinesSkipped: number
   rulesApplied: number
   hits: number
+  /** Truncated unified diff, kept for AI review context */
+  patch?: string
+}
+
+export type AiVerdictKind = 'confirmed' | 'false-positive' | 'uncertain'
+
+export interface AiFindingVerdict {
+  /** Index into AnalysisReport.findings */
+  findingIndex: number
+  verdict: AiVerdictKind
+  explanation: string
+  suggestedAction?: string
+}
+
+/** Result of an AI (Claude) triage pass over a commit's findings and diff. */
+export interface AiReview {
+  summary: string
+  overallRisk: 'low' | 'medium' | 'high' | 'critical'
+  verdicts: AiFindingVerdict[]
+  /** Issues the AI spotted that the pattern rules did not flag */
+  additionalObservations: string[]
+  model: string
+  reviewedAt: string
 }
 
 /** Full evidence trail for one commit's compliance analysis. */

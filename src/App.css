@@ -798,6 +798,161 @@
   white-space: nowrap;
 }
 
+.evidence-rule-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rule-matches {
+  list-style: none;
+  margin: 4px 0 2px;
+  padding: 0 0 0 23px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rule-matches li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+}
+
+.finding-snippet.compact {
+  margin: 0;
+  padding: 5px 8px;
+}
+
+/* ── AI review ───────────────────────────────────────────────────────────── */
+.ai-section {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 14px;
+  background: rgba(79, 140, 255, 0.04);
+}
+
+.ai-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ai-section-head .evidence-heading {
+  margin: 0;
+  flex: 1;
+}
+
+.small-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.ai-key-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ai-key-form input {
+  flex: 1;
+  min-width: 200px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 7px 10px;
+  font-size: 13px;
+  outline: none;
+}
+
+.ai-key-form input:focus {
+  border-color: var(--accent);
+}
+
+.ai-key-form .hint {
+  flex-basis: 100%;
+}
+
+.ai-review-body {
+  margin-top: 8px;
+}
+
+.ai-summary {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.ai-obs-head {
+  margin: 8px 0 4px;
+  font-size: 13px;
+}
+
+.ai-observations {
+  margin: 0 0 8px;
+  padding-left: 20px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.ai-observations li {
+  margin-bottom: 4px;
+}
+
+.badge.risk-low {
+  background: rgba(52, 211, 153, 0.13);
+  color: var(--pass);
+}
+
+.badge.risk-medium {
+  background: rgba(234, 179, 8, 0.15);
+  color: var(--medium);
+}
+
+.badge.risk-high {
+  background: rgba(249, 115, 22, 0.15);
+  color: var(--high);
+}
+
+.badge.risk-critical {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--critical);
+}
+
+.badge.verdict-confirmed {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--critical);
+}
+
+.badge.verdict-false-positive {
+  background: rgba(52, 211, 153, 0.13);
+  color: var(--pass);
+}
+
+.badge.verdict-uncertain {
+  background: rgba(234, 179, 8, 0.15);
+  color: var(--medium);
+}
+
+.ai-verdict {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+}
+
+.ai-verdict.verdict-false-positive {
+  border-color: rgba(52, 211, 153, 0.3);
+}
+
+.ai-verdict.verdict-confirmed {
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
 /* ── Findings ────────────────────────────────────────────────────────────── */
 .findings {
   display: flex;

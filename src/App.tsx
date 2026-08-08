@@ -5,6 +5,7 @@ import { BranchPicker } from './components/BranchPicker'
 import { CommitFeed } from './components/CommitFeed'
 import { ConnectPanel } from './components/ConnectPanel'
 import { GitHubClient } from './github'
+import { useAiReviews } from './hooks/useAiReviews'
 import { useMonitor } from './hooks/useMonitor'
 import type { BranchInfo, RateLimitInfo, RepoInfo } from './types'
 
@@ -21,6 +22,7 @@ export default function App() {
   const [pollInterval, setPollInterval] = useState(60)
 
   const monitor = useMonitor(client, repo, selectedBranches, pollInterval)
+  const ai = useAiReviews(repo?.fullName ?? null)
 
   async function connect({ token, owner, repo: repoName }: { token: string; owner: string; repo: string }) {
     setConnecting(true)
@@ -151,7 +153,7 @@ export default function App() {
           />
           <BaselinePanel commits={monitor.commits} />
         </aside>
-        <CommitFeed commits={monitor.commits} hasBranches={selectedBranches.length > 0} />
+        <CommitFeed commits={monitor.commits} hasBranches={selectedBranches.length > 0} ai={ai} />
       </main>
     </div>
   )
