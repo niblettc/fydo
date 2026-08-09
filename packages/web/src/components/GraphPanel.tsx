@@ -70,7 +70,8 @@ export function GraphPanel({ owner, repo, token }: Props) {
       {backendDown && (
         <p className="muted small-text">
           Graph backend not reachable. Start it with <code>npm run dev:server</code> (and Neo4j
-          via <code>docker compose up -d</code>) to enable impact analysis in AI reviews.
+          via <code>docker compose up -d</code>) to restore dependency-impact context in AI
+          reviews.
         </p>
       )}
 
@@ -78,7 +79,7 @@ export function GraphPanel({ owner, repo, token }: Props) {
         <>
           {job?.state === 'running' && (
             <p className="muted small-text">
-              Building graph… {job.filesParsed}/{job.filesTotal} files parsed
+              Rebuilding… {job.filesParsed}/{job.filesTotal} files parsed
             </p>
           )}
           {job?.state === 'error' && <div className="error-banner">{job.error}</div>}
@@ -103,19 +104,17 @@ export function GraphPanel({ owner, repo, token }: Props) {
             </ul>
           )}
 
-          {!hasGraph && job?.state !== 'running' && (
-            <p className="muted small-text">
-              No graph yet. Build one to give AI reviews dependency-impact context (which files
-              and components a change affects).
-            </p>
-          )}
+          <p className="muted small-text">
+            Built during setup; it keeps itself current as commits land. Rebuild if the codebase
+            changed drastically outside monitored branches.
+          </p>
 
           <button
             className="btn"
             onClick={() => void build()}
             disabled={starting || job?.state === 'running'}
           >
-            {job?.state === 'running' ? 'Building…' : hasGraph ? 'Rebuild graph' : 'Build graph'}
+            {job?.state === 'running' ? 'Rebuilding…' : 'Rebuild graph'}
           </button>
         </>
       )}

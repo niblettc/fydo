@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import type { FormEvent } from 'react'
 import { OWASP_CATEGORIES, categoryById } from '@fydo/core'
 import type { AiReviewsState } from '../hooks/useAiReviews'
 import type {
@@ -177,34 +176,6 @@ function FileScanList({ scans }: { scans: FileScan[] }) {
   )
 }
 
-function AiKeyPrompt({ onSave }: { onSave: (key: string) => void }) {
-  const [key, setKey] = useState('')
-
-  function submit(e: FormEvent) {
-    e.preventDefault()
-    if (key.trim()) onSave(key)
-  }
-
-  return (
-    <form className="ai-key-form" onSubmit={submit}>
-      <input
-        type="password"
-        placeholder="sk-ant-…"
-        value={key}
-        onChange={(e) => setKey(e.target.value)}
-        autoComplete="off"
-      />
-      <button type="submit" className="btn" disabled={!key.trim()}>
-        Save key
-      </button>
-      <p className="hint">
-        Add an Anthropic API key to have Claude triage findings. Stored only in your browser's
-        localStorage and sent only to api.anthropic.com.
-      </p>
-    </form>
-  )
-}
-
 function AiReviewSection({
   commit,
   ai,
@@ -221,17 +192,14 @@ function AiReviewSection({
       <div className="ai-section-head">
         <h3 className="evidence-heading">AI review</h3>
         {review && <span className={`badge risk-${review.overallRisk}`}>risk: {review.overallRisk}</span>}
-        {ai.hasKey && (
-          <button
-            className="btn small-btn"
-            onClick={() => ai.run(commit)}
-            disabled={running}
-          >
-            {running ? 'Reviewing…' : review ? 'Re-run' : 'Run AI review'}
-          </button>
-        )}
+        <button
+          className="btn small-btn"
+          onClick={() => ai.run(commit)}
+          disabled={running}
+        >
+          {running ? 'Reviewing…' : review ? 'Re-run' : 'Run AI review'}
+        </button>
       </div>
-      {!ai.hasKey && <AiKeyPrompt onSave={ai.saveKey} />}
       {error && <div className="error-banner">{error}</div>}
       {running && !review && (
         <p className="muted small-text">Claude is reviewing the diff and findings…</p>
@@ -259,8 +227,8 @@ function AiReviewSection({
             </details>
           )}
           <p className="muted small-text">
-            {review.model} · reviewed {new Date(review.reviewedAt).toLocaleString()} · saved locally
-            {review.impactContext ? ' · graph-aware' : ''}
+            {review.model} · reviewed {new Date(review.reviewedAt).toLocaleString()} · saved to
+            your account{review.impactContext ? ' · graph-aware' : ''}
           </p>
         </div>
       )}

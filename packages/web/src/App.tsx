@@ -1,56 +1,200 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
+import { GitHubClient, GitHubError } from '@fydo/core'
+import type { AnalyzedCommit, BranchInfo, RateLimitInfo, RepoInfo } from '@fydo/core'
 import { BaselinePanel } from './components/BaselinePanel'
 import { BranchPicker } from './components/BranchPicker'
 import { CommitFeed } from './components/CommitFeed'
-import { ConnectPanel } from './components/ConnectPanel'
 import { GraphPanel } from './components/GraphPanel'
-import { GitHubClient } from '@fydo/core'
+import {
+  FRAMEWORK_OWASP,
+  fetchMyRepos,
+  loadAiReviews,
+  loadCommitAnalyses,
+  saveCommitAnalyses,
+  updateRepoBranches,
+} from './db'
+import type { RepoRow } from './db'
 import { useAiReviews } from './hooks/useAiReviews'
+import { useAuth } from './hooks/useAuth'
 import { useMonitor } from './hooks/useMonitor'
-import type { BranchInfo, RateLimitInfo, RepoInfo } from '@fydo/core'
+import type { MonitorSeed } from './hooks/useMonitor'
+import type { PreparationResult } from './hooks/usePreparation'
+import { BranchesStep } from './onboarding/BranchesStep'
+import { FrameworkStep } from './onboarding/FrameworkStep'
+import { PreparationScreen } from './onboarding/PreparationScreen'
+import { RepoStep } from './onboarding/RepoStep'
+import { SignInScreen } from './onboarding/SignInScreen'
+import { SummaryScreen } from './onboarding/SummaryScreen'
+import { WizardShell } from './onboarding/WizardShell'
 
 const POLL_OPTIONS = [30, 60, 120, 300]
 
+type Step = 'repo' | 'framework' | 'branches' | 'preparing' | 'summary' | 'dashboard'
+
 export default function App() {
-  const [client, setClient] = useState<GitHubClient | null>(null)
+  const auth = useAuth()
+
+  const [step, setStep] = useState<Step>('repo')
+  const [savedRepos, setSavedRepos] = useState<RepoRow[]>([])
   const [repo, setRepo] = useState<RepoInfo | null>(null)
+  const [repoRow, setRepoRow] = useState<RepoRow | null>(null)
   const [branches, setBranches] = useState<BranchInfo[]>([])
   const [selectedBranches, setSelectedBranches] = useState<string[]>([])
+  const [seed, setSeed] = useState<MonitorSeed | null>(null)
+  const [prepResult, setPrepResult] = useState<PreparationResult | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
+  const [tokenExpired, setTokenExpired] = useState(false)
   const [rateLimit, setRateLimit] = useState<RateLimitInfo | null>(null)
   const [pollInterval, setPollInterval] = useState(60)
 
-  const monitor = useMonitor(client, repo, selectedBranches, pollInterval)
-  const ai = useAiReviews(repo?.fullName ?? null)
-
-  async function connect({ token, owner, repo: repoName }: { token: string; owner: string; repo: string }) {
-    setConnecting(true)
-    setConnectError(null)
-    const gh = new GitHubClient(token)
+  const client = useMemo(() => {
+    if (!auth.githubToken) return null
+    const gh = new GitHubClient(auth.githubToken)
     gh.onRateLimit = setRateLimit
-    try {
-      const info = await gh.getRepo(owner, repoName)
-      const branchList = await gh.getBranches(owner, repoName)
-      setClient(gh)
-      setRepo(info)
-      setBranches(branchList)
-      setSelectedBranches([info.defaultBranch])
-    } catch (e) {
-      setConnectError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setConnecting(false)
-    }
-  }
+    return gh
+  }, [auth.githubToken])
 
-  function disconnect() {
-    setClient(null)
+  useEffect(() => {
+    if (!auth.session) {
+      setSavedRepos([])
+      return
+    }
+    void fetchMyRepos()
+      .then(setSavedRepos)
+      .catch(() => setSavedRepos([]))
+  }, [auth.session])
+
+  const ai = useAiReviews(repo, repoRow?.id ?? null)
+
+  const repoRowRef = useRef(repoRow)
+  repoRowRef.current = repoRow
+  const aiRunRef = useRef(ai.run)
+  aiRunRef.current = ai.run
+
+  /** New commits found by ongoing monitoring: persist, then AI-review automatically. */
+  const handleAnalyzed = useCallback((commit: AnalyzedCommit) => {
+    const row = repoRowRef.current
+    if (row) {
+      void saveCommitAnalyses(row.id, [commit]).catch(() => {
+        /* analysis still shown for this session */
+      })
+    }
+    aiRunRef.current(commit)
+  }, [])
+
+  const monitor = useMonitor(
+    client,
+    repo,
+    selectedBranches,
+    pollInterval,
+    seed,
+    handleAnalyzed,
+    step === 'dashboard',
+  )
+
+  const handleAuthError = useCallback(() => setTokenExpired(true), [])
+
+  const selectRepo = useCallback(
+    async (owner: string, repoName: string) => {
+      if (!client) return
+      setConnecting(true)
+      setConnectError(null)
+      try {
+        const info = await client.getRepo(owner, repoName)
+        const branchList = await client.getBranches(owner, repoName)
+        setRepo(info)
+        setBranches(branchList)
+
+        const existing = savedRepos.find(
+          (r) => r.fullName === info.fullName && r.onboardedAt !== null,
+        )
+        if (existing) {
+          // Returning user: hydrate persisted analyses and go straight to the dashboard.
+          const [commits, reviews] = await Promise.all([
+            loadCommitAnalyses(existing.id),
+            loadAiReviews(existing.id),
+          ])
+          const branchNames = new Set(branchList.map((b) => b.name))
+          const stillValid = existing.selectedBranches.filter((b) => branchNames.has(b))
+          const effective = stillValid.length > 0 ? stillValid : [info.defaultBranch]
+          setRepoRow(existing)
+          setSelectedBranches(effective)
+          setSeed({
+            commits: commits.filter((c) => effective.includes(c.branch)),
+            branches: effective,
+          })
+          ai.hydrate(reviews)
+          setPrepResult(null)
+          setStep('dashboard')
+        } else {
+          setRepoRow(null)
+          setSeed(null)
+          setPrepResult(null)
+          setSelectedBranches([info.defaultBranch])
+          setStep('framework')
+        }
+      } catch (e) {
+        if (e instanceof GitHubError && e.status === 401) {
+          setTokenExpired(true)
+          return
+        }
+        setConnectError(e instanceof Error ? e.message : String(e))
+      } finally {
+        setConnecting(false)
+      }
+    },
+    [client, savedRepos, ai],
+  )
+
+  const handlePrepared = useCallback(
+    (result: PreparationResult) => {
+      setPrepResult(result)
+      setRepoRow(result.repoRow)
+      setSeed({ commits: result.commits, branches: result.repoRow.selectedBranches })
+      ai.hydrate(result.reviews)
+      setSavedRepos((prev) => [
+        result.repoRow,
+        ...prev.filter((r) => r.id !== result.repoRow.id),
+      ])
+      setStep('summary')
+    },
+    [ai],
+  )
+
+  /** Branch changes from the dashboard sidebar persist to the account. */
+  const changeBranches = useCallback(
+    (next: string[]) => {
+      setSelectedBranches(next)
+      if (repoRow) {
+        void updateRepoBranches(repoRow.id, next).catch(() => {})
+        setSavedRepos((prev) =>
+          prev.map((r) => (r.id === repoRow.id ? { ...r, selectedBranches: next } : r)),
+        )
+      }
+    },
+    [repoRow],
+  )
+
+  const switchRepo = useCallback(() => {
     setRepo(null)
+    setRepoRow(null)
     setBranches([])
     setSelectedBranches([])
-    setRateLimit(null)
-  }
+    setSeed(null)
+    setPrepResult(null)
+    setConnectError(null)
+    setStep('repo')
+    void fetchMyRepos()
+      .then(setSavedRepos)
+      .catch(() => {})
+  }, [])
+
+  const signOut = useCallback(() => {
+    switchRepo()
+    void auth.signOut()
+  }, [auth, switchRepo])
 
   const stats = useMemo(() => {
     const done = monitor.commits.filter((c) => c.status !== 'analyzing' && c.status !== 'error')
@@ -68,8 +212,122 @@ export default function App() {
     }
   }, [monitor.commits])
 
-  if (!client || !repo) {
-    return <ConnectPanel connecting={connecting} error={connectError} onConnect={connect} />
+  if (auth.loading) {
+    return (
+      <div className="connect-wrap">
+        <div className="connect-card">
+          <div className="connect-logo">⬢</div>
+          <p className="muted">Loading your session…</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!auth.session) {
+    return <SignInScreen mode="signin" onSignIn={auth.signIn} />
+  }
+
+  if (!client || tokenExpired) {
+    return <SignInScreen mode="reconnect" onSignIn={auth.signIn} onSignOut={signOut} />
+  }
+
+  if (step === 'repo') {
+    return (
+      <WizardShell
+        step={1}
+        title="Choose a repository"
+        subtitle="Pick the repository you want Commit Sentinel to watch."
+        onSignOut={signOut}
+      >
+        <RepoStep
+          client={client}
+          savedRepos={savedRepos}
+          connecting={connecting}
+          error={connectError}
+          onSelect={(owner, repoName) => void selectRepo(owner, repoName)}
+          onAuthError={handleAuthError}
+        />
+      </WizardShell>
+    )
+  }
+
+  if (step === 'framework' && repo) {
+    return (
+      <WizardShell
+        step={2}
+        title="Compliance framework"
+        subtitle={`Every commit on ${repo.fullName} will be checked against this baseline.`}
+        onSignOut={signOut}
+      >
+        <FrameworkStep onBack={switchRepo} onContinue={() => setStep('branches')} />
+      </WizardShell>
+    )
+  }
+
+  if (step === 'branches' && repo) {
+    return (
+      <WizardShell
+        step={3}
+        title="Branches to monitor"
+        subtitle="The default branch is preselected. Add any others you want watched."
+        onSignOut={signOut}
+      >
+        <BranchesStep
+          branches={branches}
+          selected={selectedBranches}
+          defaultBranch={repo.defaultBranch}
+          onChange={setSelectedBranches}
+          onBack={() => setStep('framework')}
+          onContinue={() => setStep('preparing')}
+        />
+      </WizardShell>
+    )
+  }
+
+  if (step === 'preparing' && repo) {
+    return (
+      <WizardShell
+        step={4}
+        title="Preparing your repository"
+        subtitle={`Building the dependency graph and analyzing recent commits on ${repo.fullName}.`}
+      >
+        <PreparationScreen
+          client={client}
+          repo={repo}
+          selectedBranches={selectedBranches}
+          framework={FRAMEWORK_OWASP}
+          onComplete={handlePrepared}
+          onBack={() => setStep('branches')}
+        />
+      </WizardShell>
+    )
+  }
+
+  if (step === 'summary' && repo && prepResult) {
+    return (
+      <SummaryScreen
+        repo={repo}
+        selectedBranches={selectedBranches}
+        result={prepResult}
+        onContinue={() => setStep('dashboard')}
+      />
+    )
+  }
+
+  if (!repo) {
+    // Fallback for inconsistent state (e.g. hot reload mid-wizard)
+    return (
+      <WizardShell step={1} title="Choose a repository" onSignOut={signOut}>
+        <RepoStep
+          client={client}
+          savedRepos={savedRepos}
+          connecting={connecting}
+          error={connectError}
+          onSelect={(owner, repoName) => void selectRepo(owner, repoName)}
+          onAuthError={handleAuthError}
+        />
+      </WizardShell>
+    )
   }
 
   return (
@@ -117,8 +375,11 @@ export default function App() {
           <button className="btn" onClick={monitor.refresh} disabled={monitor.polling}>
             Check now
           </button>
-          <button className="btn subtle" onClick={disconnect}>
-            Disconnect
+          <button className="btn subtle" onClick={switchRepo}>
+            Switch repo
+          </button>
+          <button className="btn subtle" onClick={signOut}>
+            Sign out
           </button>
         </div>
       </header>
@@ -150,7 +411,7 @@ export default function App() {
             branches={branches}
             selected={selectedBranches}
             defaultBranch={repo.defaultBranch}
-            onChange={setSelectedBranches}
+            onChange={changeBranches}
           />
           <GraphPanel owner={repo.owner} repo={repo.repo} token={client.getToken()} />
           <BaselinePanel commits={monitor.commits} />

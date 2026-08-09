@@ -1,9 +1,13 @@
 import cors from '@fastify/cors'
 import Fastify from 'fastify'
+import { reviewCommit } from './ai'
+import type { ReviewCommitInput } from './ai'
+import { supabaseConfigured, verifySupabaseUser } from './auth'
 import { config } from './config'
 import { Graph } from './graph'
 import type { CommitPayload } from './graph'
 import { getJob, refreshFiles, startIngest } from './ingest'
+import type { AnalysisReport } from '@fydo/core'
 
 const app = Fastify({ logger: true })
 await app.register(cors, { origin: true })
@@ -65,6 +69,46 @@ app.post<{ Params: RepoParams; Body: CommitPayload }>(
     )
 
     return { recorded: true }
+  },
+)
+
+app.post<{ Params: RepoParams; Body: { commit: ReviewCommitInput; report: AnalysisReport } }>(
+  '/api/repos/:owner/:repo/reviews',
+  async (req, reply) => {
+    if (!supabaseConfigured()) {
+      return reply.code(503).send({ error: 'Server is missing SUPABASE_URL / SUPABASE_ANON_KEY.' })
+    }
+    const userId = await verifySupabaseUser(req.headers.authorization)
+    if (!userId) {
+      return reply.code(401).send({ error: 'Sign in required for AI reviews.' })
+    }
+    if (!config.anthropicApiKey) {
+      return reply.code(503).send({ error: 'Server is missing ANTHROPIC_API_KEY.' })
+    }
+
+    const { commit, report } = req.body ?? {}
+    if (!commit || typeof commit.message !== 'string' || !report || !Array.isArray(report.fileScans)) {
+      return reply.code(400).send({ error: 'body must include "commit" and "report"' })
+    }
+
+    const { owner, repo } = req.params
+    const fullName = `${owner}/${repo}`
+
+    // Graph impact context is best-effort: the review proceeds without it if
+    // Neo4j is down or the repo has no ingested graph yet.
+    let impactContext: string | undefined
+    const changedPaths = report.fileScans.map((f) => f.filename).slice(0, 50)
+    if (changedPaths.length > 0) {
+      try {
+        const impact = await graph.impact(fullName, changedPaths)
+        impactContext = impact.promptContext || undefined
+      } catch (e) {
+        app.log.warn(`impact context unavailable for ${fullName}: ${String(e)}`)
+      }
+    }
+
+    const review = await reviewCommit(config.anthropicApiKey, commit, report, impactContext)
+    return { review }
   },
 )
 

@@ -1,5 +1,6 @@
-/** Client for the @fydo/server graph backend. All calls degrade gracefully:
- * callers should treat failures as "no graph available". */
+/** Client for the @fydo/server backend (dependency graph + AI reviews). */
+
+import type { AiReview, AnalysisReport } from '@fydo/core'
 
 const BASE_URL = (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? 'http://localhost:8787'
 
@@ -95,6 +96,22 @@ export function recordCommitToGraph(
     headers: {
       'content-type': 'application/json',
       ...(token ? { 'X-GitHub-Token': token } : {}),
+    },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function requestAiReview(
+  owner: string,
+  repo: string,
+  supabaseAccessToken: string,
+  payload: { commit: { message: string; branch: string }; report: AnalysisReport },
+): Promise<{ review: AiReview }> {
+  return api<{ review: AiReview }>(`/api/repos/${owner}/${repo}/reviews`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      Authorization: `Bearer ${supabaseAccessToken}`,
     },
     body: JSON.stringify(payload),
   })

@@ -1,53 +1,43 @@
-import { useCallback, useEffect, useState } from 'react'
-import { reviewCommit } from '../ai'
-import { fetchImpact } from '../backend'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { requestAiReview } from '../backend'
+import { saveAiReviews } from '../db'
+import { supabase } from '../supabase'
 import type { AiReview, AnalyzedCommit } from '@fydo/core'
-
-const KEY_STORAGE = 'anthropic_key'
-
-function reviewsStorageKey(repoFullName: string) {
-  return `ai_reviews:${repoFullName}`
-}
-
-function loadStoredReviews(repoFullName: string): Record<string, AiReview> {
-  try {
-    const raw = localStorage.getItem(reviewsStorageKey(repoFullName))
-    return raw ? (JSON.parse(raw) as Record<string, AiReview>) : {}
-  } catch {
-    return {}
-  }
-}
+import type { RepoInfo } from '@fydo/core'
 
 export interface AiReviewsState {
-  hasKey: boolean
-  saveKey: (key: string) => void
   reviews: Record<string, AiReview>
   running: Record<string, boolean>
   errors: Record<string, string>
   run: (commit: AnalyzedCommit) => void
+  /** Replace state with persisted reviews (returning users / post-onboarding) */
+  hydrate: (reviews: Record<string, AiReview>) => void
 }
 
-export function useAiReviews(repoFullName: string | null): AiReviewsState {
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem(KEY_STORAGE) ?? '')
+/** AI reviews run through the backend (server-side Anthropic key) and are
+ * persisted to Supabase per repo. */
+export function useAiReviews(repo: RepoInfo | null, repoId: string | null): AiReviewsState {
   const [reviews, setReviews] = useState<Record<string, AiReview>>({})
   const [running, setRunning] = useState<Record<string, boolean>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const repoIdRef = useRef(repoId)
+  repoIdRef.current = repoId
 
   useEffect(() => {
-    setReviews(repoFullName ? loadStoredReviews(repoFullName) : {})
+    setReviews({})
     setRunning({})
     setErrors({})
-  }, [repoFullName])
+  }, [repo?.fullName])
 
-  const saveKey = useCallback((key: string) => {
-    const trimmed = key.trim()
-    localStorage.setItem(KEY_STORAGE, trimmed)
-    setApiKey(trimmed)
+  const hydrate = useCallback((loaded: Record<string, AiReview>) => {
+    setReviews(loaded)
+    setRunning({})
+    setErrors({})
   }, [])
 
   const run = useCallback(
     (commit: AnalyzedCommit) => {
-      if (!repoFullName || !apiKey || !commit.report) return
+      if (!repo || !commit.report) return
       const sha = commit.sha
       setRunning((prev) => ({ ...prev, [sha]: true }))
       setErrors((prev) => {
@@ -55,47 +45,41 @@ export function useAiReviews(repoFullName: string | null): AiReviewsState {
         delete next[sha]
         return next
       })
-      const [owner, repoName] = repoFullName.split('/')
-      const changedPaths = commit.report.fileScans.map((f) => f.filename)
 
-      // Graph impact context is best-effort: review proceeds without it if the
-      // backend is down or the repo hasn't been ingested.
-      const impactPromise: Promise<string | undefined> =
-        changedPaths.length > 0
-          ? fetchImpact(owner, repoName, changedPaths)
-              .then((impact) => impact.promptContext || undefined)
-              .catch(() => undefined)
-          : Promise.resolve(undefined)
+      void (async () => {
+        try {
+          const { data } = await supabase.auth.getSession()
+          const accessToken = data.session?.access_token
+          if (!accessToken) throw new Error('Not signed in.')
 
-      void impactPromise
-        .then((impactContext) => reviewCommit(apiKey, commit, commit.report!, impactContext))
-        .then((review) => {
-          setReviews((prev) => {
-            const next = { ...prev, [sha]: review }
-            try {
-              localStorage.setItem(reviewsStorageKey(repoFullName), JSON.stringify(next))
-            } catch {
-              /* storage full — review still shown for this session */
-            }
-            return next
+          const { review } = await requestAiReview(repo.owner, repo.repo, accessToken, {
+            commit: { message: commit.message, branch: commit.branch },
+            report: commit.report!,
           })
-        })
-        .catch((e: unknown) => {
+          setReviews((prev) => ({ ...prev, [sha]: review }))
+
+          const id = repoIdRef.current
+          if (id) {
+            await saveAiReviews(id, { [sha]: review }).catch(() => {
+              /* review still shown for this session */
+            })
+          }
+        } catch (e) {
           setErrors((prev) => ({
             ...prev,
             [sha]: e instanceof Error ? e.message : String(e),
           }))
-        })
-        .finally(() => {
+        } finally {
           setRunning((prev) => {
             const next = { ...prev }
             delete next[sha]
             return next
           })
-        })
+        }
+      })()
     },
-    [repoFullName, apiKey],
+    [repo],
   )
 
-  return { hasKey: apiKey.length > 0, saveKey, reviews, running, errors, run }
+  return { reviews, running, errors, run, hydrate }
 }

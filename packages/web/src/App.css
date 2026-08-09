@@ -150,6 +150,221 @@
   margin: 0;
 }
 
+/* ── Onboarding wizard ───────────────────────────────────────────────────── */
+.wizard-card {
+  max-width: 560px;
+}
+
+.wizard-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.wizard-steps {
+  list-style: none;
+  display: flex;
+  gap: 4px;
+  margin: 18px 0 4px;
+  padding: 0;
+}
+
+.wizard-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  padding: 6px 0;
+  border-top: 2px solid var(--border);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.wizard-step.active {
+  border-top-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.wizard-step.done {
+  border-top-color: var(--pass);
+}
+
+.wizard-step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-hover);
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.wizard-step.active .wizard-step-dot {
+  background: var(--accent);
+  color: #fff;
+}
+
+.wizard-step.done .wizard-step-dot {
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--pass);
+}
+
+.wizard-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.signin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  margin: 4px 0 14px;
+}
+
+.connect-card .btn.subtle {
+  align-self: center;
+}
+
+/* Framework selection */
+.framework-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.framework-card {
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  color: inherit;
+  font: inherit;
+}
+
+.framework-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.framework-card.disabled {
+  opacity: 0.6;
+}
+
+.framework-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.framework-card p {
+  margin: 0;
+}
+
+/* Preparation stages */
+.stage-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.stage-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.stage-row.pending {
+  opacity: 0.5;
+}
+
+.stage-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.stage-icon.pending {
+  border: 2px solid var(--border);
+}
+
+.stage-icon.done {
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--pass);
+}
+
+.stage-icon.failed {
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--fail);
+}
+
+.stage-icon.running {
+  border: 2px solid var(--accent);
+  border-top-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.stage-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stage-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.stage-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+
+.stage-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+
+/* Ready summary */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin: 8px 0 16px;
+}
+
 /* ── Buttons & badges ────────────────────────────────────────────────────── */
 .btn {
   background: var(--bg-hover);

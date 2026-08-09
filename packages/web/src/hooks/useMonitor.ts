@@ -15,6 +15,14 @@ export interface MonitorState {
   refresh: () => void
 }
 
+/** Commits already analyzed during onboarding (or hydrated from Supabase),
+ * so the monitor starts as a pure ongoing watcher instead of re-fetching. */
+export interface MonitorSeed {
+  commits: AnalyzedCommit[]
+  /** Branches whose initial load is already covered by the seed */
+  branches: string[]
+}
+
 function commitKey(branch: string, sha: string) {
   return `${branch}:${sha}`
 }
@@ -24,6 +32,9 @@ export function useMonitor(
   repo: RepoInfo | null,
   branches: string[],
   pollIntervalSec: number,
+  seed: MonitorSeed | null,
+  onAnalyzed: (commit: AnalyzedCommit) => void,
+  enabled: boolean,
 ): MonitorState {
   const [commits, setCommits] = useState<AnalyzedCommit[]>([])
   const [lastPolledAt, setLastPolledAt] = useState<Date | null>(null)
@@ -31,14 +42,19 @@ export function useMonitor(
   const [error, setError] = useState<string | null>(null)
 
   const seenRef = useRef<Set<string>>(new Set())
+  const initializedBranchesRef = useRef<Set<string>>(new Set())
   const busyRef = useRef(false)
+  const onAnalyzedRef = useRef(onAnalyzed)
+  onAnalyzedRef.current = onAnalyzed
 
-  // Reset when the repo changes
+  // Re-seed whenever the repo (or its seed) changes
   useEffect(() => {
-    seenRef.current = new Set()
-    setCommits([])
+    const seeded = seed?.commits ?? []
+    seenRef.current = new Set(seeded.map((c) => commitKey(c.branch, c.sha)))
+    initializedBranchesRef.current = new Set(seed?.branches ?? [])
+    setCommits(seeded)
     setError(null)
-  }, [repo?.fullName])
+  }, [repo?.fullName, seed])
 
   const poll = useCallback(
     async (isInitialForBranch: (b: string) => boolean) => {
@@ -104,21 +120,19 @@ export function useMonitor(
                 /* backend offline — graph features simply unavailable */
               })
 
+              const analyzed: AnalyzedCommit = {
+                ...placeholder,
+                status: statusForFindings(report.findings),
+                findings: report.findings,
+                report,
+                filesChanged: detail.files?.length ?? 0,
+                additions: detail.stats?.additions ?? 0,
+                deletions: detail.stats?.deletions ?? 0,
+              }
               setCommits((prev) =>
-                prev.map((c) =>
-                  c.sha === item.sha && c.branch === branch
-                    ? {
-                        ...c,
-                        status: statusForFindings(report.findings),
-                        findings: report.findings,
-                        report,
-                        filesChanged: detail.files?.length ?? 0,
-                        additions: detail.stats?.additions ?? 0,
-                        deletions: detail.stats?.deletions ?? 0,
-                      }
-                    : c,
-                ),
+                prev.map((c) => (c.sha === item.sha && c.branch === branch ? analyzed : c)),
               )
+              onAnalyzedRef.current(analyzed)
             } catch (e) {
               setCommits((prev) =>
                 prev.map((c) =>
@@ -141,11 +155,9 @@ export function useMonitor(
     [client, repo, branches],
   )
 
-  const initializedBranchesRef = useRef<Set<string>>(new Set())
-
   // Initial fetch when a branch is newly selected, then poll on an interval.
   useEffect(() => {
-    if (!client || !repo || branches.length === 0) return
+    if (!enabled || !client || !repo || branches.length === 0) return
 
     const isInitial = (b: string) => !initializedBranchesRef.current.has(b)
     void poll(isInitial).then(() => {
@@ -156,7 +168,7 @@ export function useMonitor(
       void poll(() => false)
     }, pollIntervalSec * 1000)
     return () => clearInterval(timer)
-  }, [client, repo, branches, pollIntervalSec, poll])
+  }, [enabled, client, repo, branches, pollIntervalSec, poll])
 
   const refresh = useCallback(() => {
     void poll(() => false)

@@ -1,4 +1,7 @@
-import type { AiFindingVerdict, AiReview, AnalysisReport, AnalyzedCommit } from '@fydo/core'
+/** Server-side AI review: builds the prompt, calls Anthropic with the
+ * server's key, and parses the structured verdict response. */
+
+import type { AiFindingVerdict, AiReview, AnalysisReport } from '@fydo/core'
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages'
 export const AI_MODEL = 'claude-sonnet-4-5'
@@ -28,8 +31,13 @@ Respond with ONLY a JSON object, no markdown fences, matching this schema:
 
 Provide exactly one verdict per finding. If there are no findings, return an empty verdicts array and focus on additional_observations.`
 
+export interface ReviewCommitInput {
+  message: string
+  branch: string
+}
+
 function buildUserPrompt(
-  commit: AnalyzedCommit,
+  commit: ReviewCommitInput,
   report: AnalysisReport,
   impactContext?: string,
 ): string {
@@ -127,7 +135,7 @@ function parseReview(text: string, model: string): AiReview {
 
 export async function reviewCommit(
   apiKey: string,
-  commit: AnalyzedCommit,
+  commit: ReviewCommitInput,
   report: AnalysisReport,
   impactContext?: string,
 ): Promise<AiReview> {
@@ -137,8 +145,6 @@ export async function reviewCommit(
       'content-type': 'application/json',
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
-      // Required by Anthropic for browser-originated requests
-      'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
       model: AI_MODEL,
@@ -151,12 +157,12 @@ export async function reviewCommit(
   if (!res.ok) {
     let message = `Anthropic API error (${res.status})`
     try {
-      const body = await res.json()
+      const body = (await res.json()) as { error?: { message?: string } }
       if (body?.error?.message) message = body.error.message
     } catch {
       /* non-JSON body */
     }
-    if (res.status === 401) message = 'Invalid Anthropic API key.'
+    if (res.status === 401) message = 'Invalid Anthropic API key on the server.'
     throw new Error(message)
   }
 
