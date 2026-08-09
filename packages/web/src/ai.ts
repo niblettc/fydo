@@ -1,4 +1,4 @@
-import type { AiFindingVerdict, AiReview, AnalysisReport, AnalyzedCommit } from './types'
+import type { AiFindingVerdict, AiReview, AnalysisReport, AnalyzedCommit } from '@fydo/core'
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages'
 export const AI_MODEL = 'claude-sonnet-4-5'
@@ -28,7 +28,11 @@ Respond with ONLY a JSON object, no markdown fences, matching this schema:
 
 Provide exactly one verdict per finding. If there are no findings, return an empty verdicts array and focus on additional_observations.`
 
-function buildUserPrompt(commit: AnalyzedCommit, report: AnalysisReport): string {
+function buildUserPrompt(
+  commit: AnalyzedCommit,
+  report: AnalysisReport,
+  impactContext?: string,
+): string {
   const findings = report.findings.map((f, i) => ({
     finding_index: i,
     rule: f.ruleId,
@@ -49,7 +53,7 @@ function buildUserPrompt(commit: AnalyzedCommit, report: AnalysisReport): string
     budget -= chunk.length
   }
 
-  return [
+  const sections = [
     `Commit message: ${commit.message}`,
     `Branch: ${commit.branch}`,
     '',
@@ -58,7 +62,17 @@ function buildUserPrompt(commit: AnalyzedCommit, report: AnalysisReport): string
     '',
     'Diff (added lines are prefixed with +):',
     diffs.join('\n\n') || '(no diff content available)',
-  ].join('\n')
+  ]
+
+  if (impactContext) {
+    sections.push(
+      '',
+      'Impact context from the repository dependency graph (how the changed files relate to the rest of the codebase — use this to judge blast radius and severity):',
+      impactContext.slice(0, 3000),
+    )
+  }
+
+  return sections.join('\n')
 }
 
 interface RawVerdict {
@@ -115,6 +129,7 @@ export async function reviewCommit(
   apiKey: string,
   commit: AnalyzedCommit,
   report: AnalysisReport,
+  impactContext?: string,
 ): Promise<AiReview> {
   const res = await fetch(ANTHROPIC_API, {
     method: 'POST',
@@ -129,7 +144,7 @@ export async function reviewCommit(
       model: AI_MODEL,
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: buildUserPrompt(commit, report) }],
+      messages: [{ role: 'user', content: buildUserPrompt(commit, report, impactContext) }],
     }),
   })
 
@@ -150,5 +165,7 @@ export async function reviewCommit(
     .filter((b) => b.type === 'text')
     .map((b) => b.text ?? '')
     .join('')
-  return parseReview(text, AI_MODEL)
+  const review = parseReview(text, AI_MODEL)
+  review.impactContext = impactContext
+  return review
 }

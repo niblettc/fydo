@@ -4,10 +4,11 @@ import { BaselinePanel } from './components/BaselinePanel'
 import { BranchPicker } from './components/BranchPicker'
 import { CommitFeed } from './components/CommitFeed'
 import { ConnectPanel } from './components/ConnectPanel'
-import { GitHubClient } from './github'
+import { GraphPanel } from './components/GraphPanel'
+import { GitHubClient } from '@fydo/core'
 import { useAiReviews } from './hooks/useAiReviews'
 import { useMonitor } from './hooks/useMonitor'
-import type { BranchInfo, RateLimitInfo, RepoInfo } from './types'
+import type { BranchInfo, RateLimitInfo, RepoInfo } from '@fydo/core'
 
 const POLL_OPTIONS = [30, 60, 120, 300]
 
@@ -151,6 +152,7 @@ export default function App() {
             defaultBranch={repo.defaultBranch}
             onChange={setSelectedBranches}
           />
+          <GraphPanel owner={repo.owner} repo={repo.repo} token={client.getToken()} />
           <BaselinePanel commits={monitor.commits} />
         </aside>
         <CommitFeed commits={monitor.commits} hasBranches={selectedBranches.length > 0} ai={ai} />

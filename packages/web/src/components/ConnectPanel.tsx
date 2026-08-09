@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { GitHubClient } from '../github'
-import type { RepoListItem } from '../github'
+import { GitHubClient } from '@fydo/core'
+import type { RepoListItem } from '@fydo/core'
 
 interface Props {
   connecting: boolean

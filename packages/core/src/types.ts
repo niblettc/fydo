@@ -79,6 +79,8 @@ export interface AiReview {
   verdicts: AiFindingVerdict[]
   /** Issues the AI spotted that the pattern rules did not flag */
   additionalObservations: string[]
+  /** Dependency-graph context that was supplied to the model, if available */
+  impactContext?: string
   model: string
   reviewedAt: string
 }

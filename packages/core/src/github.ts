@@ -40,12 +40,23 @@ export class GitHubError extends Error {
   }
 }
 
+export interface TreeEntry {
+  path: string
+  type: 'blob' | 'tree'
+  sha: string
+  size?: number
+}
+
 export class GitHubClient {
   private token: string
   onRateLimit?: (info: RateLimitInfo) => void
 
   constructor(token: string) {
     this.token = token.trim()
+  }
+
+  getToken(): string {
+    return this.token
   }
 
   private async request<T>(path: string): Promise<T> {
@@ -71,7 +82,7 @@ export class GitHubClient {
     if (!res.ok) {
       let message = `GitHub API error (${res.status})`
       try {
-        const body = await res.json()
+        const body = (await res.json()) as { message?: string }
         if (body?.message) message = body.message
       } catch {
         /* non-JSON body */
@@ -165,5 +176,42 @@ export class GitHubClient {
 
   async getCommit(owner: string, repo: string, sha: string): Promise<CommitDetail> {
     return this.request<CommitDetail>(`/repos/${owner}/${repo}/commits/${sha}`)
+  }
+
+  /** Full recursive file tree at a ref. `truncated` is set by GitHub for very large repos. */
+  async getTree(
+    owner: string,
+    repo: string,
+    ref: string,
+  ): Promise<{ entries: TreeEntry[]; truncated: boolean }> {
+    const data = await this.request<{
+      tree: Array<{ path: string; type: string; sha: string; size?: number }>
+      truncated: boolean
+    }>(`/repos/${owner}/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`)
+    return {
+      entries: data.tree
+        .filter((e) => e.type === 'blob' || e.type === 'tree')
+        .map((e) => ({
+          path: e.path,
+          type: e.type as 'blob' | 'tree',
+          sha: e.sha,
+          size: e.size,
+        })),
+      truncated: data.truncated,
+    }
+  }
+
+  /** Fetch a file's content by blob sha (avoids path-encoding issues). */
+  async getBlob(owner: string, repo: string, sha: string): Promise<string> {
+    const data = await this.request<{ content: string; encoding: string }>(
+      `/repos/${owner}/${repo}/git/blobs/${sha}`,
+    )
+    if (data.encoding === 'base64') {
+      // atob works in both browsers and Node 16+
+      const binary = atob(data.content.replace(/\n/g, ''))
+      const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0))
+      return new TextDecoder().decode(bytes)
+    }
+    return data.content
   }
 }

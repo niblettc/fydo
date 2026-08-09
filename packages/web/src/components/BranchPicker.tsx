@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { BranchInfo } from '../types'
+import type { BranchInfo } from '@fydo/core'
 
 interface Props {
   branches: BranchInfo[]

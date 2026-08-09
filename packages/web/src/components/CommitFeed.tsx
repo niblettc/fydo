@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { OWASP_CATEGORIES, categoryById } from '../compliance/owasp'
+import { OWASP_CATEGORIES, categoryById } from '@fydo/core'
 import type { AiReviewsState } from '../hooks/useAiReviews'
 import type {
   AiFindingVerdict,
@@ -10,7 +10,7 @@ import type {
   CommitStatus,
   FileScan,
   Finding,
-} from '../types'
+} from '@fydo/core'
 
 const STATUS_LABEL: Record<CommitStatus, string> = {
   pass: 'Compliant',
@@ -252,8 +252,15 @@ function AiReviewSection({
               </ul>
             </>
           )}
+          {review.impactContext && (
+            <details className="impact-details">
+              <summary>Dependency-graph context used in this review</summary>
+              <pre className="impact-context">{review.impactContext}</pre>
+            </details>
+          )}
           <p className="muted small-text">
             {review.model} · reviewed {new Date(review.reviewedAt).toLocaleString()} · saved locally
+            {review.impactContext ? ' · graph-aware' : ''}
           </p>
         </div>
       )}

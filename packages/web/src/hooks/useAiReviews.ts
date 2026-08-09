@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { reviewCommit } from '../ai'
-import type { AiReview, AnalyzedCommit } from '../types'
+import { fetchImpact } from '../backend'
+import type { AiReview, AnalyzedCommit } from '@fydo/core'
 
 const KEY_STORAGE = 'anthropic_key'
 
@@ -54,7 +55,20 @@ export function useAiReviews(repoFullName: string | null): AiReviewsState {
         delete next[sha]
         return next
       })
-      void reviewCommit(apiKey, commit, commit.report)
+      const [owner, repoName] = repoFullName.split('/')
+      const changedPaths = commit.report.fileScans.map((f) => f.filename)
+
+      // Graph impact context is best-effort: review proceeds without it if the
+      // backend is down or the repo hasn't been ingested.
+      const impactPromise: Promise<string | undefined> =
+        changedPaths.length > 0
+          ? fetchImpact(owner, repoName, changedPaths)
+              .then((impact) => impact.promptContext || undefined)
+              .catch(() => undefined)
+          : Promise.resolve(undefined)
+
+      void impactPromise
+        .then((impactContext) => reviewCommit(apiKey, commit, commit.report!, impactContext))
         .then((review) => {
           setReviews((prev) => {
             const next = { ...prev, [sha]: review }

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { analyzeCommit, statusForFindings } from '../compliance/analyzer'
-import type { GitHubClient } from '../github'
-import type { AnalyzedCommit, RepoInfo } from '../types'
+import { analyzeCommit, statusForFindings } from '@fydo/core'
+import type { GitHubClient } from '@fydo/core'
+import type { AnalyzedCommit, RepoInfo } from '@fydo/core'
+import { recordCommitToGraph } from '../backend'
 
 const INITIAL_COMMITS_PER_BRANCH = 5
 const POLL_COMMITS_PER_BRANCH = 15
@@ -75,6 +76,34 @@ export function useMonitor(
             try {
               const detail = await client.getCommit(repo.owner, repo.repo, item.sha)
               const report = analyzeCommit(detail)
+
+              // Feed the dependency graph backend; monitoring works fine without it.
+              void recordCommitToGraph(repo.owner, repo.repo, client.getToken(), {
+                sha: item.sha,
+                branch,
+                message: placeholder.message,
+                author: placeholder.author,
+                date: placeholder.date,
+                status: statusForFindings(report.findings),
+                files: (detail.files ?? []).map((f) => ({
+                  path: f.filename,
+                  status: f.status,
+                  additions: f.additions,
+                  deletions: f.deletions,
+                })),
+                findings: report.findings.map((f) => ({
+                  ruleId: f.ruleId,
+                  owaspId: f.owaspId,
+                  severity: f.severity,
+                  title: f.title,
+                  file: f.file,
+                  line: f.line,
+                  snippet: f.snippet,
+                })),
+              }).catch(() => {
+                /* backend offline — graph features simply unavailable */
+              })
+
               setCommits((prev) =>
                 prev.map((c) =>
                   c.sha === item.sha && c.branch === branch

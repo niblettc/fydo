@@ -1,36 +1,58 @@
 # Commit Sentinel
 
-A React web app that connects to a GitHub repository, monitors commits landing on the branches you choose, and analyzes every commit against a compliance baseline — starting with the **OWASP Top 10 (2021)**.
+A compliance monitor for GitHub repositories. It watches commits landing on the branches you choose, analyzes every change against the **OWASP Top 10 (2021)** baseline, and — with the optional graph backend — understands how each change ripples through the codebase via a **Neo4j code-structure graph** built from real AST parsing.
+
+## Architecture
+
+npm-workspaces monorepo:
+
+| Package | What it is |
+|---|---|
+| `packages/core` | Shared TypeScript: OWASP rules engine, diff analyzer, GitHub API client, domain types. Used by both web and server. |
+| `packages/web` | React 19 + Vite dashboard: connect a repo, monitor branches, view per-commit compliance evidence, run AI reviews. |
+| `packages/server` | Fastify API: parses the repo into a Neo4j graph (files, imports, symbols, components, commits, findings) and answers impact queries. |
 
 ## Features
 
-- **Connect to any GitHub repo** by name or URL, with an optional personal access token (required for private repos, and raises the API rate limit from 60 to 5,000 requests/hour). The token is stored only in your browser's localStorage and sent only to `api.github.com`.
-- **Monitor one or more branches.** New commits are picked up automatically on a configurable polling interval (30s–5m), and you can trigger a check on demand.
-- **OWASP Top 10 compliance analysis.** Each commit's diff is scanned by a rules engine covering all ten 2021 categories (A01–A10) — hardcoded secrets, SQL/command injection patterns, weak crypto, disabled TLS verification, insecure deserialization, SSRF patterns, and more. Findings include the file, line, code snippet, severity, OWASP category, and remediation guidance.
-- **Compliance dashboard** with per-commit pass/warn/fail status, aggregate stats, and a baseline panel showing which OWASP categories have violations.
-- **Evidence trail per commit.** Expanding a commit shows exactly why it passed or failed: per-rule evaluation counts, the specific matched lines of code per rule, and every file's scan record.
-- **Optional AI review (Anthropic).** Paste an Anthropic API key and Claude triages each finding against the actual diff — marking it confirmed, false positive, or needs review, with an explanation and suggested action — plus an overall risk rating and any issues the pattern rules missed. Reviews are saved in localStorage per repo, so they persist across reloads. The key is stored only in your browser and sent only to `api.anthropic.com`.
+- **Connect to any GitHub repo.** Paste a personal access token to discover and pick from your repositories, or enter any public `owner/repo` manually. Tokens stay in your browser.
+- **Monitor branches.** New commits are picked up on a configurable polling interval and scanned by ~30 pattern rules covering all ten OWASP categories.
+- **Evidence trail per commit.** Expand any commit to see why it passed or failed: per-rule evaluation counts, the matched lines of code, and every file's scan record.
+- **Code-structure graph (Neo4j).** The server ingests the repo — TypeScript/JavaScript files are parsed with the TypeScript compiler AST (imports, re-exports, `require`/dynamic imports, exported symbols), Python via import parsing — into a graph: `(File)-[:IMPORTS]->(File)`, `(File)-[:DECLARES]->(Symbol)`, `(File)-[:PART_OF]->(Component)`, `(Commit)-[:MODIFIES]->(File)`, `(Finding)-[:AFFECTS]->(File)`. Every analyzed commit is recorded into the graph automatically.
+- **Impact-aware AI review (Anthropic).** With an Anthropic API key, Claude triages each finding against the diff **plus dependency-graph context**: which files import the changed files (direct and transitive), exported symbols, affected components, prior findings in the area, and historically co-changed files. Verdicts, explanations, and the graph context used are saved locally per commit.
 
 ## Getting started
 
 ```bash
 npm install
-npm run dev
+
+# 1. Start Neo4j (ships with docker-compose; browser UI at http://localhost:7474)
+docker compose up -d
+
+# 2. Start the graph API (http://localhost:8787)
+npm run dev:server
+
+# 3. Start the web app (http://localhost:5173)
+npm run dev:web
 ```
 
-Then open the printed URL (default http://localhost:5173), enter a repository like `expressjs/express`, and optionally paste a GitHub personal access token (a fine-grained token with read-only **Contents** access is sufficient).
+The web app works without steps 1–2 — you just lose graph impact context in AI reviews and the dependency-graph panel.
+
+Connect a repo in the UI, then click **Build graph** in the sidebar to ingest it. Server configuration is via environment variables (see `packages/server/.env.example`); defaults match the bundled docker-compose.
+
+## API
+
+- `POST /api/repos/:owner/:repo/ingest` — parse the repo tree into the graph (async; send `X-GitHub-Token` for private repos / rate limits)
+- `GET  /api/repos/:owner/:repo/status` — ingestion progress + graph stats
+- `POST /api/repos/:owner/:repo/commits` — record an analyzed commit (files, findings); refreshes import edges for changed files
+- `POST /api/repos/:owner/:repo/impact` — `{ paths: [...] }` → dependents, symbols, components, prior findings, co-change history, and a ready-to-use `promptContext` string
+- `GET  /api/health` — Neo4j connectivity check
 
 ## How the analysis works
 
-For each new commit on a monitored branch, the app fetches the commit's unified diff from the GitHub API and runs every **added line** through ~30 pattern-based rules mapped to OWASP Top 10 categories. A commit is marked:
+For each new commit on a monitored branch, the app fetches the commit's unified diff and runs every **added line** through pattern rules mapped to OWASP Top 10 categories. A commit is marked **Compliant** (no findings), **Warnings** (medium/low only), or **Violations** (high/critical). This is a lightweight static-pattern baseline, not a full SAST engine — the AI review layer exists precisely to arbitrate its findings with real code context. The rule set lives in `packages/core/src/compliance/owasp.ts`.
 
-- **Compliant** — no findings
-- **Warnings** — only medium/low-severity findings
-- **Violations** — at least one high/critical finding
+## Notes & limits
 
-This is a lightweight static-pattern baseline, not a full SAST engine — treat findings as review prompts rather than verdicts. The rule set lives in `src/compliance/owasp.ts` and is easy to extend with additional rules or entirely new baselines (e.g. CWE Top 25, PCI DSS).
-
-## Tech
-
-- React 19 + TypeScript + Vite
-- GitHub REST API (no backend required — everything runs in the browser)
+- Import resolution covers relative JS/TS imports (with extension/index probing) and Python module paths; tsconfig path aliases and dynamic non-literal imports are not resolved.
+- Repo ingestion costs one GitHub API request per source file (capped at 1,500 files) — use a token.
+- Graph re-ingestion replaces file structure edges; commit/finding history is preserved.

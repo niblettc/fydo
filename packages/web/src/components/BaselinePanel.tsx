@@ -1,5 +1,5 @@
-import { OWASP_CATEGORIES, OWASP_RULES } from '../compliance/owasp'
-import type { AnalyzedCommit } from '../types'
+import { OWASP_CATEGORIES, OWASP_RULES } from '@fydo/core'
+import type { AnalyzedCommit } from '@fydo/core'
 
 interface Props {
   commits: AnalyzedCommit[]
