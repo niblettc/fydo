@@ -1,0 +1,22 @@
+{
+  "name": "@fydo/supabase",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Supabase CLI + migrations for the fydo project",
+  "scripts": {
+    "supabase": "supabase",
+    "link": "supabase link",
+    "start": "supabase start",
+    "stop": "supabase stop",
+    "status": "supabase status",
+    "migration:new": "supabase migration new",
+    "migration:list": "supabase migration list",
+    "db:push": "supabase db push",
+    "db:reset": "supabase db reset",
+    "db:diff": "supabase db diff",
+    "gen:types": "supabase gen types typescript --linked"
+  },
+  "devDependencies": {
+    "supabase": "^2.113.0"
+  }
+}

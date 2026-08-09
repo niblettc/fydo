@@ -4,7 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "supabase"
   ],
   "scripts": {
     "dev:web": "npm run dev --workspace @fydo/web",
