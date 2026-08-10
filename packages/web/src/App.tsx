@@ -247,11 +247,12 @@ export default function App() {
     setSeed(null)
     setPrepResult(null)
     setConnectError(null)
+    ai.hydrate({})
     setStep('repo')
     void fetchMyRepos()
       .then(setSavedRepos)
       .catch(() => {})
-  }, [])
+  }, [ai])
 
   /** Abandon the wizard and return to a project dashboard */
   const cancelWizard = useCallback(() => {

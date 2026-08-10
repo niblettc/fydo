@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { requestAiReview } from '../backend'
 import { saveAiReviews } from '../db'
 import { supabase } from '../supabase'
@@ -23,12 +23,10 @@ export function useAiReviews(repo: RepoInfo | null, repoId: string | null): AiRe
   const repoIdRef = useRef(repoId)
   repoIdRef.current = repoId
 
-  useEffect(() => {
-    setReviews({})
-    setRunning({})
-    setErrors({})
-  }, [repo?.fullName])
-
+  /** Sole reset point: every path into a project (open, post-onboarding) and
+   * out of one (new-project wizard) hydrates with the appropriate map. A
+   * repo-change effect here would wipe reviews that were hydrated in the same
+   * render batch as the repo switch. */
   const hydrate = useCallback((loaded: Record<string, AiReview>) => {
     setReviews(loaded)
     setRunning({})
