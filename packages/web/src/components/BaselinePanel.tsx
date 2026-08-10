@@ -2,7 +2,7 @@ import { OWASP_CATEGORIES, OWASP_RULES } from '@fydo/core'
 import type { UnifiedFinding } from '@fydo/core'
 
 interface Props {
-  /** Open unified findings across unique analyzed commits */
+  /** Unresolved (open or needs-review) findings across unique analyzed commits */
   openFindings: UnifiedFinding[]
 }
 
@@ -45,7 +45,8 @@ export function BaselinePanel({ openFindings }: Props) {
       </ul>
       {uncategorized > 0 && (
         <p className="muted small-text">
-          {uncategorized} open finding{uncategorized === 1 ? '' : 's'} without an OWASP category.
+          {uncategorized} unresolved finding{uncategorized === 1 ? '' : 's'} without an OWASP
+          category.
         </p>
       )}
     </section>

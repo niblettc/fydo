@@ -12,6 +12,13 @@ import type {
   UnifiedFinding,
 } from '@fydo/core'
 
+/** Overall risk ratings that must surface even without itemized findings */
+const RISK_SEVERITY: Partial<Record<AiReview['overallRisk'], Severity>> = {
+  medium: 'medium',
+  high: 'high',
+  critical: 'critical',
+}
+
 export interface CommitView {
   findings: UnifiedFinding[]
   status: CommitStatus
@@ -38,19 +45,31 @@ export function commitView(
     }
   }
   const findings = mergeFindings(commit.sha, commit.findings, review, overrides)
-  let status = statusForUnifiedFindings(findings)
-  // Safety net: a review that rates the commit high/critical without itemizing
-  // any findings is contradictory — surface it instead of showing Clean.
-  if (
-    status === 'clean' &&
-    review &&
-    (review.overallRisk === 'high' || review.overallRisk === 'critical')
-  ) {
-    status = 'needs-review'
+
+  // An AI risk rating of medium or higher with nothing actionable itemized
+  // (older prose-only reviews, or every finding triaged away) becomes a real
+  // finding with that severity, so the severity counters, commit status, and
+  // triage flow all pick it up through the normal path.
+  const riskSeverity = review ? RISK_SEVERITY[review.overallRisk] : undefined
+  const hasUnresolved = findings.some((f) => f.status === 'open' || f.status === 'needs-review')
+  if (review && riskSeverity && !hasUnresolved) {
+    const id = `${commit.sha}:ai-risk`
+    const override = overrides[id]
+    findings.push({
+      id,
+      source: 'ai',
+      status: override?.status ?? 'needs-review',
+      statusReason: override?.note,
+      severity: riskSeverity,
+      title: `AI rated this commit ${review.overallRisk} risk`,
+      description: review.summary,
+      remediation: 'Re-run the AI review to itemize the issues, or triage this rating manually.',
+    })
   }
+
   return {
     findings,
-    status,
+    status: statusForUnifiedFindings(findings),
     openCount: findings.filter((f) => f.status === 'open').length,
     needsReviewCount: findings.filter((f) => f.status === 'needs-review').length,
     worstSeverity: worstActiveSeverity(findings),

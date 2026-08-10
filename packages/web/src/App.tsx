@@ -209,11 +209,15 @@ export default function App() {
     return map
   }, [monitor.commits, ai.reviews, triage.overrides])
 
-  /** Counters over unique commits (a sha on two monitored branches counts once) */
+  /** Counters over unique commits (a sha on two monitored branches counts once).
+   * "Unresolved" = open + needs-review findings; a commit flagged needs-review
+   * (e.g. a high-risk AI review with nothing itemized) counts even with zero
+   * findings, so a red flag anywhere in the feed always moves the top metrics. */
   const stats = useMemo(() => {
     const seen = new Set<string>()
     let analyzed = 0
-    let open = 0
+    let needsReview = 0
+    let unresolved = 0
     let critHigh = 0
     let medLow = 0
     for (const c of monitor.commits) {
@@ -222,17 +226,18 @@ export default function App() {
       analyzed++
       const view = views.get(viewKey(c))
       if (!view) continue
+      if (view.status === 'needs-review') needsReview++
       for (const f of view.findings) {
-        if (f.status !== 'open') continue
-        open++
+        if (f.status !== 'open' && f.status !== 'needs-review') continue
+        unresolved++
         if (f.severity === 'critical' || f.severity === 'high') critHigh++
         else medLow++
       }
     }
-    return { analyzed, open, critHigh, medLow }
+    return { analyzed, needsReview, unresolved, critHigh, medLow }
   }, [monitor.commits, views])
 
-  /** Open findings across unique commits, for the OWASP baseline panel */
+  /** Unresolved findings across unique commits, for the OWASP baseline panel */
   const openFindings = useMemo(() => {
     const seen = new Set<string>()
     const result: UnifiedFinding[] = []
@@ -240,7 +245,10 @@ export default function App() {
       if (seen.has(c.sha)) continue
       seen.add(c.sha)
       const view = views.get(viewKey(c))
-      if (view) result.push(...view.findings.filter((f) => f.status === 'open'))
+      if (view)
+        result.push(
+          ...view.findings.filter((f) => f.status === 'open' || f.status === 'needs-review'),
+        )
     }
     return result
   }, [monitor.commits, views])
@@ -422,17 +430,21 @@ export default function App() {
           <div className="stat-value">{stats.analyzed}</div>
           <div className="stat-label">Commits analyzed</div>
         </div>
-        <div className={`stat ${stats.open === 0 ? 'pass' : ''}`}>
-          <div className="stat-value">{stats.open}</div>
-          <div className="stat-label">Open findings</div>
+        <div className={`stat ${stats.unresolved === 0 && stats.needsReview === 0 ? 'pass' : ''}`}>
+          <div className="stat-value">{stats.unresolved}</div>
+          <div className="stat-label">Unresolved findings</div>
         </div>
         <div className={`stat ${stats.critHigh > 0 ? 'fail' : ''}`}>
           <div className="stat-value">{stats.critHigh}</div>
-          <div className="stat-label">Critical/high open</div>
+          <div className="stat-label">Critical/high</div>
         </div>
         <div className={`stat ${stats.medLow > 0 ? 'warn' : ''}`}>
           <div className="stat-value">{stats.medLow}</div>
-          <div className="stat-label">Medium/low open</div>
+          <div className="stat-label">Medium/low</div>
+        </div>
+        <div className={`stat ${stats.needsReview > 0 ? 'warn' : ''}`}>
+          <div className="stat-value">{stats.needsReview}</div>
+          <div className="stat-label">Commits needing review</div>
         </div>
       </div>
 
