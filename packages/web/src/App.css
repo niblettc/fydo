@@ -161,6 +161,11 @@
   justify-content: space-between;
 }
 
+.wizard-top-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .wizard-steps {
   list-style: none;
   display: flex;
@@ -541,6 +546,93 @@
 
 .repo-name a {
   color: var(--text);
+}
+
+/* ── Project switcher ────────────────────────────────────────────────────── */
+.project-switcher {
+  position: relative;
+}
+
+.project-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text);
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.project-trigger:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.project-trigger .chevron {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.project-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 50;
+  min-width: 260px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.project-menu-heading {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.project-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.project-item:hover {
+  background: var(--bg-hover);
+}
+
+.project-item.active,
+.project-check {
+  color: var(--accent);
+}
+
+.project-item-new {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.project-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 6px 4px;
 }
 
 .topbar-right {

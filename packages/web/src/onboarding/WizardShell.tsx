@@ -9,19 +9,28 @@ interface Props {
   subtitle?: string
   children: ReactNode
   onSignOut?: () => void
+  /** Abandon the wizard and return to the active project's dashboard */
+  onCancel?: () => void
 }
 
-export function WizardShell({ step, title, subtitle, children, onSignOut }: Props) {
+export function WizardShell({ step, title, subtitle, children, onSignOut, onCancel }: Props) {
   return (
     <div className="connect-wrap">
       <div className="connect-card wizard-card">
         <div className="wizard-top">
           <span className="connect-logo">⬢</span>
-          {onSignOut && (
-            <button type="button" className="btn subtle" onClick={onSignOut}>
-              Sign out
-            </button>
-          )}
+          <span className="wizard-top-actions">
+            {onCancel && (
+              <button type="button" className="btn subtle" onClick={onCancel}>
+                Back to dashboard
+              </button>
+            )}
+            {onSignOut && (
+              <button type="button" className="btn subtle" onClick={onSignOut}>
+                Sign out
+              </button>
+            )}
+          </span>
         </div>
 
         <ol className="wizard-steps">

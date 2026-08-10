@@ -8,6 +8,7 @@ import { BaselinePanel } from './components/BaselinePanel'
 import { BranchPicker } from './components/BranchPicker'
 import { CommitFeed } from './components/CommitFeed'
 import { GraphPanel } from './components/GraphPanel'
+import { ProjectSwitcher } from './components/ProjectSwitcher'
 import {
   FRAMEWORK_OWASP,
   fetchMyRepos,
@@ -33,6 +34,9 @@ import { WizardShell } from './onboarding/WizardShell'
 
 const POLL_OPTIONS = [30, 60, 120, 300]
 
+/** Remembers which project to reopen on the next visit */
+const LAST_PROJECT_KEY = 'fydo_last_project'
+
 type Step = 'repo' | 'framework' | 'branches' | 'preparing' | 'summary' | 'dashboard'
 
 export default function App() {
@@ -40,6 +44,7 @@ export default function App() {
 
   const [step, setStep] = useState<Step>('repo')
   const [savedRepos, setSavedRepos] = useState<RepoRow[]>([])
+  const [reposLoaded, setReposLoaded] = useState(false)
   const [repo, setRepo] = useState<RepoInfo | null>(null)
   const [repoRow, setRepoRow] = useState<RepoRow | null>(null)
   const [branches, setBranches] = useState<BranchInfo[]>([])
@@ -47,6 +52,7 @@ export default function App() {
   const [seed, setSeed] = useState<MonitorSeed | null>(null)
   const [prepResult, setPrepResult] = useState<PreparationResult | null>(null)
   const [connecting, setConnecting] = useState(false)
+  const [switching, setSwitching] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
   const [tokenExpired, setTokenExpired] = useState(false)
   const [rateLimit, setRateLimit] = useState<RateLimitInfo | null>(null)
@@ -62,12 +68,20 @@ export default function App() {
   useEffect(() => {
     if (!auth.session) {
       setSavedRepos([])
+      setReposLoaded(false)
       return
     }
     void fetchMyRepos()
       .then(setSavedRepos)
       .catch(() => setSavedRepos([]))
+      .finally(() => setReposLoaded(true))
   }, [auth.session])
+
+  /** Onboarded repos are the user's projects */
+  const projects = useMemo(
+    () => savedRepos.filter((r) => r.onboardedAt !== null),
+    [savedRepos],
+  )
 
   const ai = useAiReviews(repo, repoRow?.id ?? null)
   const triage = useFindingOverrides(repoRow?.id ?? null)
@@ -100,9 +114,63 @@ export default function App() {
 
   const handleAuthError = useCallback(() => setTokenExpired(true), [])
 
+  /** Open an existing project: fetch repo state from GitHub, hydrate persisted
+   * analyses and reviews, and land on its dashboard. */
+  const openProject = useCallback(
+    async (row: RepoRow) => {
+      if (!client) return
+      const [owner, repoName] = row.fullName.split('/')
+      setSwitching(true)
+      setConnectError(null)
+      try {
+        const info = await client.getRepo(owner, repoName)
+        const branchList = await client.getBranches(owner, repoName)
+        const [commits, reviews] = await Promise.all([
+          loadCommitAnalyses(row.id),
+          loadAiReviews(row.id),
+        ])
+        const branchNames = new Set(branchList.map((b) => b.name))
+        const stillValid = row.selectedBranches.filter((b) => branchNames.has(b))
+        const effective = stillValid.length > 0 ? stillValid : [info.defaultBranch]
+        setRepo(info)
+        setBranches(branchList)
+        setRepoRow(row)
+        setSelectedBranches(effective)
+        setSeed({
+          commits: commits.filter((c) => effective.includes(c.branch)),
+          branches: effective,
+        })
+        ai.hydrate(reviews)
+        setPrepResult(null)
+        localStorage.setItem(LAST_PROJECT_KEY, row.id)
+        setStep('dashboard')
+      } catch (e) {
+        if (e instanceof GitHubError && e.status === 401) {
+          setTokenExpired(true)
+          return
+        }
+        setConnectError(e instanceof Error ? e.message : String(e))
+      } finally {
+        setSwitching(false)
+      }
+    },
+    [client, ai],
+  )
+
+  /** Wizard repo pick: open the project if it's already onboarded, otherwise
+   * continue to the framework step. */
   const selectRepo = useCallback(
     async (owner: string, repoName: string) => {
       if (!client) return
+      const existing = savedRepos.find(
+        (r) => r.fullName === `${owner}/${repoName}` && r.onboardedAt !== null,
+      )
+      if (existing) {
+        setConnecting(true)
+        await openProject(existing)
+        setConnecting(false)
+        return
+      }
       setConnecting(true)
       setConnectError(null)
       try {
@@ -110,35 +178,11 @@ export default function App() {
         const branchList = await client.getBranches(owner, repoName)
         setRepo(info)
         setBranches(branchList)
-
-        const existing = savedRepos.find(
-          (r) => r.fullName === info.fullName && r.onboardedAt !== null,
-        )
-        if (existing) {
-          // Returning user: hydrate persisted analyses and go straight to the dashboard.
-          const [commits, reviews] = await Promise.all([
-            loadCommitAnalyses(existing.id),
-            loadAiReviews(existing.id),
-          ])
-          const branchNames = new Set(branchList.map((b) => b.name))
-          const stillValid = existing.selectedBranches.filter((b) => branchNames.has(b))
-          const effective = stillValid.length > 0 ? stillValid : [info.defaultBranch]
-          setRepoRow(existing)
-          setSelectedBranches(effective)
-          setSeed({
-            commits: commits.filter((c) => effective.includes(c.branch)),
-            branches: effective,
-          })
-          ai.hydrate(reviews)
-          setPrepResult(null)
-          setStep('dashboard')
-        } else {
-          setRepoRow(null)
-          setSeed(null)
-          setPrepResult(null)
-          setSelectedBranches([info.defaultBranch])
-          setStep('framework')
-        }
+        setRepoRow(null)
+        setSeed(null)
+        setPrepResult(null)
+        setSelectedBranches([info.defaultBranch])
+        setStep('framework')
       } catch (e) {
         if (e instanceof GitHubError && e.status === 401) {
           setTokenExpired(true)
@@ -149,8 +193,20 @@ export default function App() {
         setConnecting(false)
       }
     },
-    [client, savedRepos, ai],
+    [client, savedRepos, openProject],
   )
+
+  /** First load with existing projects: skip the wizard and open the last
+   * project the user was in (falling back to the most recent). */
+  const bootstrappedRef = useRef(false)
+  useEffect(() => {
+    if (bootstrappedRef.current || !client || !reposLoaded || step !== 'repo') return
+    if (projects.length === 0) return
+    bootstrappedRef.current = true
+    const lastId = localStorage.getItem(LAST_PROJECT_KEY)
+    const target = projects.find((p) => p.id === lastId) ?? projects[0]
+    void openProject(target)
+  }, [client, reposLoaded, projects, step, openProject])
 
   const handlePrepared = useCallback(
     (result: PreparationResult) => {
@@ -162,6 +218,7 @@ export default function App() {
         result.repoRow,
         ...prev.filter((r) => r.id !== result.repoRow.id),
       ])
+      localStorage.setItem(LAST_PROJECT_KEY, result.repoRow.id)
       setStep('summary')
     },
     [ai],
@@ -181,7 +238,8 @@ export default function App() {
     [repoRow],
   )
 
-  const switchRepo = useCallback(() => {
+  /** Enter the wizard to onboard a new project */
+  const startNewProject = useCallback(() => {
     setRepo(null)
     setRepoRow(null)
     setBranches([])
@@ -195,10 +253,19 @@ export default function App() {
       .catch(() => {})
   }, [])
 
+  /** Abandon the wizard and return to a project dashboard */
+  const cancelWizard = useCallback(() => {
+    if (projects.length === 0) return
+    const lastId = localStorage.getItem(LAST_PROJECT_KEY)
+    const target = projects.find((p) => p.id === lastId) ?? projects[0]
+    void openProject(target)
+  }, [projects, openProject])
+
   const signOut = useCallback(() => {
-    switchRepo()
+    startNewProject()
+    bootstrappedRef.current = false
     void auth.signOut()
-  }, [auth, switchRepo])
+  }, [auth, startNewProject])
 
   /** Unified view (scanner + AI + manual triage) per feed entry */
   const views = useMemo(() => {
@@ -272,6 +339,22 @@ export default function App() {
     return <SignInScreen mode="reconnect" onSignIn={auth.signIn} onSignOut={signOut} />
   }
 
+  // Wait for saved projects before deciding between wizard and dashboard, and
+  // cover the transition while a project is being opened from outside the
+  // dashboard (initial bootstrap, wizard cancel).
+  if (!reposLoaded || (switching && step !== 'dashboard')) {
+    return (
+      <div className="connect-wrap">
+        <div className="connect-card">
+          <div className="connect-logo">⬢</div>
+          <p className="muted">{reposLoaded ? 'Opening your project…' : 'Loading your projects…'}</p>
+        </div>
+      </div>
+    )
+  }
+
+  const wizardCancel = projects.length > 0 ? cancelWizard : undefined
+
   if (step === 'repo') {
     return (
       <WizardShell
@@ -279,6 +362,7 @@ export default function App() {
         title="Choose a repository"
         subtitle="Pick the repository you want Commit Sentinel to watch."
         onSignOut={signOut}
+        onCancel={wizardCancel}
       >
         <RepoStep
           client={client}
@@ -299,8 +383,9 @@ export default function App() {
         title="Compliance framework"
         subtitle={`Every commit on ${repo.fullName} will be checked against this baseline.`}
         onSignOut={signOut}
+        onCancel={wizardCancel}
       >
-        <FrameworkStep onBack={switchRepo} onContinue={() => setStep('branches')} />
+        <FrameworkStep onBack={startNewProject} onContinue={() => setStep('branches')} />
       </WizardShell>
     )
   }
@@ -312,6 +397,7 @@ export default function App() {
         title="Branches to monitor"
         subtitle="The default branch is preselected. Add any others you want watched."
         onSignOut={signOut}
+        onCancel={wizardCancel}
       >
         <BranchesStep
           branches={branches}
@@ -378,8 +464,16 @@ export default function App() {
           <span className="logo">⬢</span>
           <div>
             <div className="repo-name">
-              <a href={repo.htmlUrl} target="_blank" rel="noreferrer">
-                {repo.fullName}
+              <ProjectSwitcher
+                projects={projects}
+                activeId={repoRow?.id ?? null}
+                activeName={repo.fullName}
+                switching={switching}
+                onSelect={(row) => void openProject(row)}
+                onNewProject={startNewProject}
+              />
+              <a href={repo.htmlUrl} target="_blank" rel="noreferrer" title="View on GitHub">
+                ↗
               </a>
               {repo.private && <span className="badge neutral small">private</span>}
             </div>
@@ -416,9 +510,6 @@ export default function App() {
           <button className="btn" onClick={monitor.refresh} disabled={monitor.polling}>
             Check now
           </button>
-          <button className="btn subtle" onClick={switchRepo}>
-            Switch repo
-          </button>
           <button className="btn subtle" onClick={signOut}>
             Sign out
           </button>
@@ -448,6 +539,7 @@ export default function App() {
         </div>
       </div>
 
+      {connectError && <div className="error-banner wide">{connectError}</div>}
       {monitor.error && <div className="error-banner wide">{monitor.error}</div>}
 
       <main className="layout">
