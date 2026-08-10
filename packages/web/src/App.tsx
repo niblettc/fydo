@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { GitHubClient, GitHubError } from '@fydo/core'
 import type { AnalyzedCommit, BranchInfo, RateLimitInfo, RepoInfo, UnifiedFinding } from '@fydo/core'
-import { commitView, viewKey } from './findings'
+import { commitView, findingFeedItems, viewKey } from './findings'
 import type { CommitView } from './findings'
+import { FindingsFeed } from './components/FindingsFeed'
+import type { SeverityFilter, StatusFilter } from './components/FindingsFeed'
 import { BaselinePanel } from './components/BaselinePanel'
 import { BranchPicker } from './components/BranchPicker'
 import { CommitFeed } from './components/CommitFeed'
@@ -57,6 +59,11 @@ export default function App() {
   const [tokenExpired, setTokenExpired] = useState(false)
   const [rateLimit, setRateLimit] = useState<RateLimitInfo | null>(null)
   const [pollInterval, setPollInterval] = useState(60)
+
+  /** null = auto: findings tab when anything is active, commits otherwise */
+  const [tab, setTab] = useState<'findings' | 'commits' | null>(null)
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
+  const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all')
 
   const client = useMemo(() => {
     if (!auth.githubToken) return null
@@ -142,6 +149,9 @@ export default function App() {
         })
         ai.hydrate(reviews)
         setPrepResult(null)
+        setTab(null)
+        setStatusFilter('active')
+        setSeverityFilter('all')
         localStorage.setItem(LAST_PROJECT_KEY, row.id)
         setStep('dashboard')
       } catch (e) {
@@ -219,6 +229,9 @@ export default function App() {
         ...prev.filter((r) => r.id !== result.repoRow.id),
       ])
       localStorage.setItem(LAST_PROJECT_KEY, result.repoRow.id)
+      setTab(null)
+      setStatusFilter('active')
+      setSeverityFilter('all')
       setStep('summary')
     },
     [ai],
@@ -277,37 +290,46 @@ export default function App() {
     return map
   }, [monitor.commits, ai.reviews, triage.overrides])
 
-  /** Counters over unique commits (a sha on two monitored branches counts once).
-   * "Unresolved" = open + needs-review findings; a commit flagged needs-review
-   * (e.g. a high-risk AI review with nothing itemized) counts even with zero
-   * findings, so a red flag anywhere in the feed always moves the top metrics. */
+  /** Counters over unique commits (a sha on two monitored branches counts
+   * once), split by unit so the UI never mixes them: `findings` counts
+   * individual active (open + needs-review) findings, `commits` counts
+   * commit-level rollups for the feed summary. */
   const stats = useMemo(() => {
     const seen = new Set<string>()
-    let analyzed = 0
-    let needsReview = 0
-    let unresolved = 0
-    let critical = 0
-    let high = 0
-    let medium = 0
-    let low = 0
+    const commits = { analyzed: 0, withFindings: 0, needsReview: 0 }
+    const findings = { active: 0, critical: 0, high: 0, medium: 0, low: 0, awaitingReview: 0 }
     for (const c of monitor.commits) {
       if (c.status === 'analyzing' || c.status === 'error' || seen.has(c.sha)) continue
       seen.add(c.sha)
-      analyzed++
+      commits.analyzed++
       const view = views.get(viewKey(c))
       if (!view) continue
-      if (view.status === 'needs-review') needsReview++
+      if (view.status === 'findings') commits.withFindings++
+      if (view.status === 'needs-review') commits.needsReview++
       for (const f of view.findings) {
         if (f.status !== 'open' && f.status !== 'needs-review') continue
-        unresolved++
-        if (f.severity === 'critical') critical++
-        else if (f.severity === 'high') high++
-        else if (f.severity === 'medium') medium++
-        else low++
+        findings.active++
+        findings[f.severity]++
+        if (f.status === 'needs-review') findings.awaitingReview++
       }
     }
-    return { analyzed, needsReview, unresolved, critical, high, medium, low }
+    return { commits, findings }
   }, [monitor.commits, views])
+
+  /** Finding-centric feed items (deduped by finding id) */
+  const feedItems = useMemo(
+    () => findingFeedItems(monitor.commits, views),
+    [monitor.commits, views],
+  )
+
+  const activeTab = tab ?? (stats.findings.active > 0 ? 'findings' : 'commits')
+
+  /** Stat-card click: jump to the findings tab pre-filtered */
+  const showFindings = useCallback((severity: SeverityFilter, status: StatusFilter) => {
+    setTab('findings')
+    setSeverityFilter(severity)
+    setStatusFilter(status)
+  }, [])
 
   /** Unresolved findings across unique commits, for the OWASP baseline panel */
   const openFindings = useMemo(() => {
@@ -521,36 +543,59 @@ export default function App() {
         </div>
       </header>
 
-      <div className="stats-row">
-        <div className="stat">
-          <div className="stat-value">{stats.analyzed}</div>
-          <div className="stat-label">Commits analyzed</div>
+      <section className="stats-section">
+        <div className="stats-heading">Findings</div>
+        <div className="stats-row">
+          <button
+            type="button"
+            className={`stat ${stats.findings.active === 0 ? 'pass' : ''}`}
+            onClick={() => showFindings('all', 'active')}
+          >
+            <div className="stat-value">{stats.findings.active}</div>
+            <div className="stat-label">Active findings</div>
+          </button>
+          <button
+            type="button"
+            className={`stat ${stats.findings.critical > 0 ? 'sev-critical' : ''}`}
+            onClick={() => showFindings('critical', 'active')}
+          >
+            <div className="stat-value">{stats.findings.critical}</div>
+            <div className="stat-label">Critical</div>
+          </button>
+          <button
+            type="button"
+            className={`stat ${stats.findings.high > 0 ? 'sev-high' : ''}`}
+            onClick={() => showFindings('high', 'active')}
+          >
+            <div className="stat-value">{stats.findings.high}</div>
+            <div className="stat-label">High</div>
+          </button>
+          <button
+            type="button"
+            className={`stat ${stats.findings.medium > 0 ? 'sev-medium' : ''}`}
+            onClick={() => showFindings('medium', 'active')}
+          >
+            <div className="stat-value">{stats.findings.medium}</div>
+            <div className="stat-label">Medium</div>
+          </button>
+          <button
+            type="button"
+            className={`stat ${stats.findings.low > 0 ? 'sev-low' : ''}`}
+            onClick={() => showFindings('low', 'active')}
+          >
+            <div className="stat-value">{stats.findings.low}</div>
+            <div className="stat-label">Low</div>
+          </button>
+          <button
+            type="button"
+            className={`stat ${stats.findings.awaitingReview > 0 ? 'warn' : ''}`}
+            onClick={() => showFindings('all', 'needs-review')}
+          >
+            <div className="stat-value">{stats.findings.awaitingReview}</div>
+            <div className="stat-label">Awaiting review</div>
+          </button>
         </div>
-        <div className={`stat ${stats.unresolved === 0 && stats.needsReview === 0 ? 'pass' : ''}`}>
-          <div className="stat-value">{stats.unresolved}</div>
-          <div className="stat-label">Unresolved findings</div>
-        </div>
-        <div className={`stat ${stats.critical > 0 ? 'fail' : ''}`}>
-          <div className="stat-value">{stats.critical}</div>
-          <div className="stat-label">Critical</div>
-        </div>
-        <div className={`stat ${stats.high > 0 ? 'fail' : ''}`}>
-          <div className="stat-value">{stats.high}</div>
-          <div className="stat-label">High</div>
-        </div>
-        <div className={`stat ${stats.medium > 0 ? 'warn' : ''}`}>
-          <div className="stat-value">{stats.medium}</div>
-          <div className="stat-label">Medium</div>
-        </div>
-        <div className={`stat ${stats.low > 0 ? 'warn' : ''}`}>
-          <div className="stat-value">{stats.low}</div>
-          <div className="stat-label">Low</div>
-        </div>
-        <div className={`stat ${stats.needsReview > 0 ? 'warn' : ''}`}>
-          <div className="stat-value">{stats.needsReview}</div>
-          <div className="stat-label">Commits needing review</div>
-        </div>
-      </div>
+      </section>
 
       {connectError && <div className="error-banner wide">{connectError}</div>}
       {monitor.error && <div className="error-banner wide">{monitor.error}</div>}
@@ -566,13 +611,48 @@ export default function App() {
           <GraphPanel owner={repo.owner} repo={repo.repo} token={client.getToken()} />
           <BaselinePanel openFindings={openFindings} />
         </aside>
-        <CommitFeed
-          commits={monitor.commits}
-          hasBranches={selectedBranches.length > 0}
-          ai={ai}
-          views={views}
-          onTriage={triage.setStatus}
-        />
+        <div className="feed-column">
+          <div className="feed-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'findings'}
+              className={`feed-tab ${activeTab === 'findings' ? 'active' : ''}`}
+              onClick={() => setTab('findings')}
+            >
+              Findings <span className="badge neutral small">{stats.findings.active}</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'commits'}
+              className={`feed-tab ${activeTab === 'commits' ? 'active' : ''}`}
+              onClick={() => setTab('commits')}
+            >
+              Commits <span className="badge neutral small">{stats.commits.analyzed}</span>
+            </button>
+          </div>
+          {activeTab === 'findings' ? (
+            <FindingsFeed
+              items={feedItems}
+              hasBranches={selectedBranches.length > 0}
+              statusFilter={statusFilter}
+              severityFilter={severityFilter}
+              onStatusFilterChange={setStatusFilter}
+              onSeverityFilterChange={setSeverityFilter}
+              onTriage={triage.setStatus}
+            />
+          ) : (
+            <CommitFeed
+              commits={monitor.commits}
+              hasBranches={selectedBranches.length > 0}
+              ai={ai}
+              views={views}
+              onTriage={triage.setStatus}
+              summary={stats.commits}
+            />
+          )}
+        </div>
       </main>
     </div>
   )

@@ -80,3 +80,40 @@ export function commitView(
 export function viewKey(commit: AnalyzedCommit): string {
   return `${commit.branch}:${commit.sha}`
 }
+
+/** One finding with the commit it came from, for the findings feed */
+export interface FindingFeedItem {
+  finding: UnifiedFinding
+  commit: AnalyzedCommit
+  /** All monitored branches this commit appears on */
+  branches: string[]
+}
+
+const SEVERITY_ORDER: Record<Severity, number> = { critical: 3, high: 2, medium: 1, low: 0 }
+
+/** Flattens commit views into one finding-centric list, deduped by finding id
+ * (a sha on two monitored branches yields identical finding ids), sorted by
+ * severity then commit recency. */
+export function findingFeedItems(
+  commits: AnalyzedCommit[],
+  views: Map<string, CommitView>,
+): FindingFeedItem[] {
+  const byId = new Map<string, FindingFeedItem>()
+  for (const c of commits) {
+    const view = views.get(viewKey(c))
+    if (!view) continue
+    for (const f of view.findings) {
+      const existing = byId.get(f.id)
+      if (existing) {
+        if (!existing.branches.includes(c.branch)) existing.branches.push(c.branch)
+      } else {
+        byId.set(f.id, { finding: f, commit: c, branches: [c.branch] })
+      }
+    }
+  }
+  return [...byId.values()].sort(
+    (a, b) =>
+      SEVERITY_ORDER[b.finding.severity] - SEVERITY_ORDER[a.finding.severity] ||
+      new Date(b.commit.date).getTime() - new Date(a.commit.date).getTime(),
+  )
+}

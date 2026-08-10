@@ -654,12 +654,25 @@
 }
 
 /* ── Stats row ───────────────────────────────────────────────────────────── */
+.stats-section {
+  margin-bottom: 20px;
+}
+
+.stats-heading {
+  padding: 0 24px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
 .stats-row {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 14px;
   padding: 0 24px;
-  margin-bottom: 20px;
 }
 
 .stat {
@@ -667,6 +680,19 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px 18px;
+}
+
+/* Stat cards double as filters for the findings feed */
+button.stat {
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+button.stat:hover {
+  border-color: var(--accent);
 }
 
 .stat-value {
@@ -686,9 +712,121 @@
   color: var(--warn);
 }
 
+.stat.sev-critical .stat-value {
+  color: var(--critical);
+}
+
+.stat.sev-high .stat-value {
+  color: var(--high);
+}
+
+.stat.sev-medium .stat-value {
+  color: var(--medium);
+}
+
+.stat.sev-low .stat-value {
+  color: var(--low);
+}
+
 .stat-label {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+/* ── Feed tabs & findings feed ───────────────────────────────────────────── */
+.feed-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.feed-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.feed-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 7px 14px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.feed-tab:hover {
+  color: var(--text);
+}
+
+.feed-tab.active {
+  color: var(--text);
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
+
+.findings-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.findings-filters .inline-select {
+  padding: 6px 8px;
+}
+
+.findings-search {
+  flex: 1;
+  min-width: 180px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.findings-search:focus {
+  border-color: var(--accent);
+}
+
+.findings-feed-list .finding {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.finding-commit {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.finding-commit-msg {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 340px;
+}
+
+.finding-commit a {
+  color: var(--text-muted);
 }
 
 /* ── Layout ──────────────────────────────────────────────────────────────── */

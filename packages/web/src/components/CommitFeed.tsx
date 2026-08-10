@@ -1,25 +1,11 @@
 import { useState } from 'react'
-import { OWASP_CATEGORIES, categoryById } from '@fydo/core'
+import { OWASP_CATEGORIES } from '@fydo/core'
 import type { AiReviewsState } from '../hooks/useAiReviews'
 import type { CommitView } from '../findings'
 import { commitView, viewKey } from '../findings'
-import type {
-  AnalysisReport,
-  AnalyzedCommit,
-  CommitStatus,
-  FileScan,
-  FindingOverride,
-  FindingSource,
-  FindingStatus,
-  UnifiedFinding,
-} from '@fydo/core'
-
-type TriageFn = (
-  sha: string,
-  findingId: string,
-  status: FindingOverride['status'],
-  note?: string,
-) => void
+import { FindingCard } from './FindingCard'
+import type { TriageFn } from './FindingCard'
+import type { AnalysisReport, AnalyzedCommit, CommitStatus, FileScan } from '@fydo/core'
 
 const STATUS_LABEL: Record<CommitStatus, string> = {
   clean: 'Clean',
@@ -27,19 +13,6 @@ const STATUS_LABEL: Record<CommitStatus, string> = {
   'needs-review': 'Needs review',
   analyzing: 'Analyzing…',
   error: 'Error',
-}
-
-const SOURCE_LABEL: Record<FindingSource, string> = {
-  rules: 'Rules',
-  ai: 'AI',
-  both: 'AI + Rules',
-}
-
-const FINDING_STATUS_LABEL: Record<FindingStatus, string> = {
-  open: 'Requires action',
-  'needs-review': 'Needs review',
-  dismissed: 'Dismissed',
-  resolved: 'Resolved',
 }
 
 const SKIP_REASON_LABEL: Record<NonNullable<FileScan['skipReason']>, string> = {
@@ -68,78 +41,6 @@ function commitBadgeText(view: CommitView): string {
     return `Needs review · ${view.needsReviewCount}${sev}`
   }
   return STATUS_LABEL[view.status]
-}
-
-function FindingRow({
-  sha,
-  finding,
-  onTriage,
-}: {
-  sha: string
-  finding: UnifiedFinding
-  onTriage: TriageFn
-}) {
-  const category = finding.owaspId ? categoryById(finding.owaspId) : undefined
-  const inactive = finding.status === 'dismissed' || finding.status === 'resolved'
-
-  return (
-    <div className={`finding sev-${finding.severity} ${inactive ? 'finding-inactive' : ''}`}>
-      <div className="finding-head">
-        <span className={`badge sev-${finding.severity}`}>{finding.severity}</span>
-        <span className={`badge source-${finding.source}`}>{SOURCE_LABEL[finding.source]}</span>
-        {category && (
-          <span className="badge owasp">
-            {category.code} {category.name}
-          </span>
-        )}
-        <strong>{finding.title}</strong>
-        <span className={`badge fstatus-${finding.status}`}>
-          {FINDING_STATUS_LABEL[finding.status]}
-        </span>
-      </div>
-      {finding.file && (
-        <div className="finding-loc">
-          {finding.file}
-          {finding.line != null ? `:${finding.line}` : ''}
-        </div>
-      )}
-      {finding.snippet && <pre className="finding-snippet">{finding.snippet}</pre>}
-      <p className="finding-desc">{finding.description}</p>
-      {finding.remediation && (
-        <p className="finding-fix">
-          <strong>Fix:</strong> {finding.remediation}
-        </p>
-      )}
-      {finding.statusReason && (
-        <p className="finding-desc">
-          <strong>Assessment:</strong> {finding.statusReason}
-        </p>
-      )}
-      <div className="finding-actions">
-        {!inactive && (
-          <>
-            <button
-              className="btn small-btn"
-              onClick={() => onTriage(sha, finding.id, 'resolved')}
-            >
-              Mark resolved
-            </button>
-            <button
-              className="btn small-btn"
-              onClick={() => onTriage(sha, finding.id, 'dismissed')}
-            >
-              Dismiss
-            </button>
-          </>
-        )}
-        {inactive && (
-          <button className="btn small-btn" onClick={() => onTriage(sha, finding.id, 'open')}>
-            Reopen
-          </button>
-        )}
-      </div>
-    </div>
-  )
 }
 
 function CategoryEvidence({ report }: { report: AnalysisReport }) {
@@ -328,7 +229,7 @@ function EvidencePanel({
           <h3 className="evidence-heading">Findings ({active.length})</h3>
           <div className="findings">
             {active.map((f) => (
-              <FindingRow key={f.id} sha={commit.sha} finding={f} onTriage={onTriage} />
+              <FindingCard key={f.id} sha={commit.sha} finding={f} onTriage={onTriage} />
             ))}
           </div>
         </>
@@ -339,7 +240,7 @@ function EvidencePanel({
           <h3 className="evidence-heading">Dismissed & resolved ({inactive.length})</h3>
           <div className="findings">
             {inactive.map((f) => (
-              <FindingRow key={f.id} sha={commit.sha} finding={f} onTriage={onTriage} />
+              <FindingCard key={f.id} sha={commit.sha} finding={f} onTriage={onTriage} />
             ))}
           </div>
         </>
@@ -426,9 +327,11 @@ interface Props {
   ai: AiReviewsState
   views: Map<string, CommitView>
   onTriage: TriageFn
+  /** Commit-level rollups (deduped by sha) for the feed header */
+  summary: { analyzed: number; withFindings: number; needsReview: number }
 }
 
-export function CommitFeed({ commits, hasBranches, ai, views, onTriage }: Props) {
+export function CommitFeed({ commits, hasBranches, ai, views, onTriage, summary }: Props) {
   const sorted = [...commits].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   )
@@ -436,7 +339,10 @@ export function CommitFeed({ commits, hasBranches, ai, views, onTriage }: Props)
     <section className="panel feed">
       <div className="panel-header">
         <h2>Commit feed</h2>
-        <span className="badge neutral">{commits.length} analyzed</span>
+        <span className="muted small-text">
+          {summary.analyzed} analyzed · {summary.withFindings} with findings ·{' '}
+          {summary.needsReview} awaiting review
+        </span>
       </div>
       {!hasBranches && (
         <p className="muted empty-row">Select one or more branches to start monitoring.</p>
