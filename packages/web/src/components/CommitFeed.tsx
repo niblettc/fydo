@@ -1,28 +1,45 @@
 import { useState } from 'react'
 import { OWASP_CATEGORIES, categoryById } from '@fydo/core'
 import type { AiReviewsState } from '../hooks/useAiReviews'
+import type { CommitView } from '../findings'
+import { commitView, viewKey } from '../findings'
 import type {
-  AiFindingVerdict,
-  AiReview,
   AnalysisReport,
   AnalyzedCommit,
   CommitStatus,
   FileScan,
-  Finding,
+  FindingOverride,
+  FindingSource,
+  FindingStatus,
+  UnifiedFinding,
 } from '@fydo/core'
 
+type TriageFn = (
+  sha: string,
+  findingId: string,
+  status: FindingOverride['status'],
+  note?: string,
+) => void
+
 const STATUS_LABEL: Record<CommitStatus, string> = {
-  pass: 'Compliant',
-  warn: 'Warnings',
-  fail: 'Violations',
+  clean: 'Clean',
+  findings: 'Findings',
+  'needs-review': 'Needs review',
   analyzing: 'Analyzing…',
   error: 'Error',
 }
 
-const VERDICT_LABEL: Record<AiFindingVerdict['verdict'], string> = {
-  confirmed: 'AI: confirmed',
-  'false-positive': 'AI: false positive',
-  uncertain: 'AI: needs review',
+const SOURCE_LABEL: Record<FindingSource, string> = {
+  rules: 'Rules',
+  ai: 'AI',
+  both: 'AI + Rules',
+}
+
+const FINDING_STATUS_LABEL: Record<FindingStatus, string> = {
+  open: 'Open',
+  'needs-review': 'Needs review',
+  dismissed: 'Dismissed',
+  resolved: 'Resolved',
 }
 
 const SKIP_REASON_LABEL: Record<NonNullable<FileScan['skipReason']>, string> = {
@@ -40,40 +57,86 @@ function timeAgo(iso: string): string {
   return `${Math.floor(s / 86400)}d ago`
 }
 
-function FindingRow({ finding, verdict }: { finding: Finding; verdict?: AiFindingVerdict }) {
-  const category = categoryById(finding.owaspId)
+function commitBadgeText(view: CommitView): string {
+  if (view.status === 'findings') {
+    const n = view.openCount
+    const sev = view.worstSeverity ? ` · ${view.worstSeverity}` : ''
+    return `${n} finding${n === 1 ? '' : 's'}${sev}`
+  }
+  if (view.status === 'needs-review' && view.needsReviewCount > 0) {
+    return `Needs review · ${view.needsReviewCount}`
+  }
+  return STATUS_LABEL[view.status]
+}
+
+function FindingRow({
+  sha,
+  finding,
+  onTriage,
+}: {
+  sha: string
+  finding: UnifiedFinding
+  onTriage: TriageFn
+}) {
+  const category = finding.owaspId ? categoryById(finding.owaspId) : undefined
+  const inactive = finding.status === 'dismissed' || finding.status === 'resolved'
+
   return (
-    <div className={`finding sev-${finding.severity}`}>
+    <div className={`finding sev-${finding.severity} ${inactive ? 'finding-inactive' : ''}`}>
       <div className="finding-head">
         <span className={`badge sev-${finding.severity}`}>{finding.severity}</span>
-        <span className="badge owasp">
-          {category ? `${category.code} ${category.name}` : finding.owaspId}
-        </span>
-        <strong>{finding.title}</strong>
-        {verdict && (
-          <span className={`badge verdict-${verdict.verdict}`}>{VERDICT_LABEL[verdict.verdict]}</span>
+        <span className={`badge source-${finding.source}`}>{SOURCE_LABEL[finding.source]}</span>
+        {category && (
+          <span className="badge owasp">
+            {category.code} {category.name}
+          </span>
         )}
+        <strong>{finding.title}</strong>
+        <span className={`badge fstatus-${finding.status}`}>
+          {FINDING_STATUS_LABEL[finding.status]}
+        </span>
       </div>
-      <div className="finding-loc">
-        {finding.file}:{finding.line}
-      </div>
-      <pre className="finding-snippet">{finding.snippet}</pre>
-      <p className="finding-desc">{finding.description}</p>
-      <p className="finding-fix">
-        <strong>Fix:</strong> {finding.remediation}
-      </p>
-      {verdict && (
-        <div className={`ai-verdict verdict-${verdict.verdict}`}>
-          <p className="finding-desc">
-            <strong>AI analysis:</strong> {verdict.explanation}
-          </p>
-          {verdict.suggestedAction && (
-            <p className="finding-desc">
-              <strong>Suggested action:</strong> {verdict.suggestedAction}
-            </p>
-          )}
+      {finding.file && (
+        <div className="finding-loc">
+          {finding.file}
+          {finding.line != null ? `:${finding.line}` : ''}
         </div>
       )}
+      {finding.snippet && <pre className="finding-snippet">{finding.snippet}</pre>}
+      <p className="finding-desc">{finding.description}</p>
+      {finding.remediation && (
+        <p className="finding-fix">
+          <strong>Fix:</strong> {finding.remediation}
+        </p>
+      )}
+      {finding.statusReason && (
+        <p className="finding-desc">
+          <strong>Assessment:</strong> {finding.statusReason}
+        </p>
+      )}
+      <div className="finding-actions">
+        {!inactive && (
+          <>
+            <button
+              className="btn small-btn"
+              onClick={() => onTriage(sha, finding.id, 'resolved')}
+            >
+              Mark resolved
+            </button>
+            <button
+              className="btn small-btn"
+              onClick={() => onTriage(sha, finding.id, 'dismissed')}
+            >
+              Dismiss
+            </button>
+          </>
+        )}
+        {inactive && (
+          <button className="btn small-btn" onClick={() => onTriage(sha, finding.id, 'open')}>
+            Reopen
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -176,14 +239,8 @@ function FileScanList({ scans }: { scans: FileScan[] }) {
   )
 }
 
-function AiReviewSection({
-  commit,
-  ai,
-}: {
-  commit: AnalyzedCommit
-  ai: AiReviewsState
-}) {
-  const review: AiReview | undefined = ai.reviews[commit.sha]
+function AiSummarySection({ commit, ai }: { commit: AnalyzedCommit; ai: AiReviewsState }) {
+  const review = ai.reviews[commit.sha]
   const running = ai.running[commit.sha] ?? false
   const error = ai.errors[commit.sha]
 
@@ -191,12 +248,7 @@ function AiReviewSection({
     <div className="ai-section">
       <div className="ai-section-head">
         <h3 className="evidence-heading">AI review</h3>
-        {review && <span className={`badge risk-${review.overallRisk}`}>risk: {review.overallRisk}</span>}
-        <button
-          className="btn small-btn"
-          onClick={() => ai.run(commit)}
-          disabled={running}
-        >
+        <button className="btn small-btn" onClick={() => ai.run(commit)} disabled={running}>
           {running ? 'Reviewing…' : review ? 'Re-run' : 'Run AI review'}
         </button>
       </div>
@@ -207,19 +259,6 @@ function AiReviewSection({
       {review && (
         <div className="ai-review-body">
           <p className="ai-summary">{review.summary}</p>
-          {review.additionalObservations.length > 0 && (
-            <>
-              <p className="ai-obs-head">
-                <strong>Additional observations</strong>{' '}
-                <span className="muted small-text">(not flagged by pattern rules)</span>
-              </p>
-              <ul className="ai-observations">
-                {review.additionalObservations.map((o, i) => (
-                  <li key={i}>{o}</li>
-                ))}
-              </ul>
-            </>
-          )}
           {review.impactContext && (
             <details className="impact-details">
               <summary>Dependency-graph context used in this review</summary>
@@ -236,50 +275,67 @@ function AiReviewSection({
   )
 }
 
-function EvidencePanel({ commit, ai }: { commit: AnalyzedCommit; ai: AiReviewsState }) {
+function EvidencePanel({
+  commit,
+  view,
+  ai,
+  onTriage,
+}: {
+  commit: AnalyzedCommit
+  view: CommitView
+  ai: AiReviewsState
+  onTriage: TriageFn
+}) {
   const report = commit.report
   if (!report) return null
 
   const scannedFiles = report.fileScans.filter((f) => f.scanned).length
-  const review = ai.reviews[commit.sha]
-  const verdictFor = (index: number) =>
-    review?.verdicts.find((v) => v.findingIndex === index)
+  const active = view.findings.filter((f) => f.status === 'open' || f.status === 'needs-review')
+  const inactive = view.findings.filter((f) => f.status === 'dismissed' || f.status === 'resolved')
 
   return (
     <div className="evidence">
       <p className="evidence-summary">
-        {commit.status === 'pass' ? (
+        {view.status === 'clean' ? (
           <>
-            <strong>Why this commit is compliant:</strong> {report.totalLinesChecked} added line
+            <strong>Why this commit is clean:</strong> {report.totalLinesChecked} added line
             {report.totalLinesChecked === 1 ? '' : 's'} across {scannedFiles} file
             {scannedFiles === 1 ? '' : 's'} were evaluated against {report.totalRulesEvaluated}{' '}
-            applicable OWASP Top 10 rule{report.totalRulesEvaluated === 1 ? '' : 's'}, with zero
-            matches.
+            applicable OWASP Top 10 rule{report.totalRulesEvaluated === 1 ? '' : 's'}
+            {view.reviewed ? ' and AI-reviewed' : ''}, with no open findings.
           </>
         ) : (
           <>
             <strong>Evidence:</strong> {report.totalLinesChecked} added line
             {report.totalLinesChecked === 1 ? '' : 's'} across {scannedFiles} file
             {scannedFiles === 1 ? '' : 's'} evaluated against {report.totalRulesEvaluated} applicable
-            rule{report.totalRulesEvaluated === 1 ? '' : 's'} — {report.findings.length} match
-            {report.findings.length === 1 ? '' : 'es'} found.
+            rule{report.totalRulesEvaluated === 1 ? '' : 's'}
+            {view.reviewed ? ' plus an AI review' : ''} — {active.length} finding
+            {active.length === 1 ? '' : 's'} need{active.length === 1 ? 's' : ''} attention.
           </>
         )}{' '}
         <span className="muted">Analyzed {new Date(report.analyzedAt).toLocaleString()}.</span>
       </p>
 
-      <AiReviewSection commit={commit} ai={ai} />
+      <AiSummarySection commit={commit} ai={ai} />
 
-      {report.findings.length > 0 && (
+      {active.length > 0 && (
         <>
-          <h3 className="evidence-heading">Findings ({report.findings.length})</h3>
+          <h3 className="evidence-heading">Findings ({active.length})</h3>
           <div className="findings">
-            {report.findings.map((f, i) => (
-              <FindingRow
-                key={`${f.ruleId}-${f.file}-${f.line}-${i}`}
-                finding={f}
-                verdict={verdictFor(i)}
-              />
+            {active.map((f) => (
+              <FindingRow key={f.id} sha={commit.sha} finding={f} onTriage={onTriage} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {inactive.length > 0 && (
+        <>
+          <h3 className="evidence-heading">Dismissed & resolved ({inactive.length})</h3>
+          <div className="findings">
+            {inactive.map((f) => (
+              <FindingRow key={f.id} sha={commit.sha} finding={f} onTriage={onTriage} />
             ))}
           </div>
         </>
@@ -294,20 +350,29 @@ function EvidencePanel({ commit, ai }: { commit: AnalyzedCommit; ai: AiReviewsSt
   )
 }
 
-function CommitCard({ commit, ai }: { commit: AnalyzedCommit; ai: AiReviewsState }) {
+function CommitCard({
+  commit,
+  view,
+  ai,
+  onTriage,
+}: {
+  commit: AnalyzedCommit
+  view: CommitView
+  ai: AiReviewsState
+  onTriage: TriageFn
+}) {
   const [open, setOpen] = useState(false)
   const clickable = commit.report != null
-  const review = ai.reviews[commit.sha]
 
   return (
-    <li className={`commit-card status-${commit.status}`}>
+    <li className={`commit-card status-${view.status}`}>
       <button
         className="commit-summary"
         onClick={() => clickable && setOpen((o) => !o)}
         aria-expanded={open}
         style={{ cursor: clickable ? 'pointer' : 'default' }}
       >
-        <span className={`status-dot ${commit.status}`} />
+        <span className={`status-dot ${view.status}`} />
         <div className="commit-main">
           <div className="commit-msg">{commit.message}</div>
           <div className="commit-meta">
@@ -332,20 +397,12 @@ function CommitCard({ commit, ai }: { commit: AnalyzedCommit; ai: AiReviewsState
           </div>
         </div>
         <div className="commit-status">
-          {review && (
-            <span className={`badge risk-${review.overallRisk}`} title="AI-reviewed">
-              AI · {review.overallRisk}
-            </span>
-          )}
-          <span className={`badge status-${commit.status}`}>
-            {STATUS_LABEL[commit.status]}
-            {commit.findings.length > 0 && ` · ${commit.findings.length}`}
-          </span>
+          <span className={`badge status-${view.status}`}>{commitBadgeText(view)}</span>
           {clickable && <span className="chevron">{open ? '▾' : '▸'}</span>}
         </div>
       </button>
       {commit.status === 'error' && <div className="commit-error">{commit.error}</div>}
-      {open && <EvidencePanel commit={commit} ai={ai} />}
+      {open && <EvidencePanel commit={commit} view={view} ai={ai} onTriage={onTriage} />}
       <a
         className="commit-link"
         href={commit.url}
@@ -363,9 +420,11 @@ interface Props {
   commits: AnalyzedCommit[]
   hasBranches: boolean
   ai: AiReviewsState
+  views: Map<string, CommitView>
+  onTriage: TriageFn
 }
 
-export function CommitFeed({ commits, hasBranches, ai }: Props) {
+export function CommitFeed({ commits, hasBranches, ai, views, onTriage }: Props) {
   const sorted = [...commits].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   )
@@ -383,7 +442,13 @@ export function CommitFeed({ commits, hasBranches, ai }: Props) {
       )}
       <ul className="commit-list">
         {sorted.map((c) => (
-          <CommitCard key={`${c.branch}:${c.sha}`} commit={c} ai={ai} />
+          <CommitCard
+            key={viewKey(c)}
+            commit={c}
+            view={views.get(viewKey(c)) ?? commitView(c, ai.reviews[c.sha], {})}
+            ai={ai}
+            onTriage={onTriage}
+          />
         ))}
       </ul>
     </section>

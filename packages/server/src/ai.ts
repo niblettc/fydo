@@ -1,7 +1,7 @@
 /** Server-side AI review: builds the prompt, calls Anthropic with the
  * server's key, and parses the structured verdict response. */
 
-import type { AiFindingVerdict, AiReview, AnalysisReport } from '@fydo/core'
+import type { AiAdditionalFinding, AiFindingVerdict, AiReview, AnalysisReport } from '@fydo/core'
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages'
 export const AI_MODEL = 'claude-sonnet-4-5'
@@ -26,10 +26,20 @@ Respond with ONLY a JSON object, no markdown fences, matching this schema:
       "suggested_action": "concrete next step for the developer"
     }
   ],
-  "additional_observations": ["security issues you see in the diff that the scanner missed, if any"]
+  "additional_findings": [
+    {
+      "title": "short issue title",
+      "severity": "critical" | "high" | "medium" | "low",
+      "owasp_category": "A01".."A10" if one clearly applies, else omit,
+      "file": "path of the affected file from the diff, if identifiable",
+      "line": <number, line in the new file, if identifiable>,
+      "explanation": "1-3 sentences: what the issue is and why it matters",
+      "suggested_action": "concrete next step for the developer"
+    }
+  ]
 }
 
-Provide exactly one verdict per finding. If there are no findings, return an empty verdicts array and focus on additional_observations.`
+Provide exactly one verdict per finding. additional_findings are concrete security issues you see in the diff that the scanner missed — each must be a discrete, actionable issue, not a general observation. If there are no scanner findings, return an empty verdicts array and focus on additional_findings.`
 
 export interface ReviewCommitInput {
   message: string
@@ -90,6 +100,18 @@ interface RawVerdict {
   suggested_action?: string
 }
 
+interface RawAdditionalFinding {
+  title?: string
+  severity?: string
+  owasp_category?: string
+  file?: string
+  line?: number
+  explanation?: string
+  suggested_action?: string
+}
+
+const SEVERITIES = ['critical', 'high', 'medium', 'low'] as const
+
 function parseReview(text: string, model: string): AiReview {
   // Tolerate accidental markdown fences or prose around the JSON object
   const start = text.indexOf('{')
@@ -99,7 +121,7 @@ function parseReview(text: string, model: string): AiReview {
     summary?: string
     overall_risk?: string
     verdicts?: RawVerdict[]
-    additional_observations?: string[]
+    additional_findings?: RawAdditionalFinding[]
   }
 
   const validVerdicts: AiFindingVerdict[] = (raw.verdicts ?? [])
@@ -121,13 +143,34 @@ function parseReview(text: string, model: string): AiReview {
     ? (raw.overall_risk as AiReview['overallRisk'])
     : 'low'
 
+  const additionalFindings: AiAdditionalFinding[] = (raw.additional_findings ?? [])
+    .filter(
+      (f): f is RawAdditionalFinding & { title: string; explanation: string } =>
+        typeof f?.title === 'string' &&
+        f.title.length > 0 &&
+        typeof f.explanation === 'string' &&
+        f.explanation.length > 0,
+    )
+    .map((f) => ({
+      title: f.title,
+      severity: (SEVERITIES as readonly string[]).includes(f.severity ?? '')
+        ? (f.severity as AiAdditionalFinding['severity'])
+        : 'medium',
+      owaspId:
+        typeof f.owasp_category === 'string' && /^A(0[1-9]|10)$/.test(f.owasp_category)
+          ? f.owasp_category
+          : undefined,
+      file: typeof f.file === 'string' && f.file ? f.file : undefined,
+      line: typeof f.line === 'number' ? f.line : undefined,
+      explanation: f.explanation,
+      suggestedAction: f.suggested_action,
+    }))
+
   return {
     summary: raw.summary ?? 'No summary provided.',
     overallRisk: risk,
     verdicts: validVerdicts,
-    additionalObservations: (raw.additional_observations ?? []).filter(
-      (o) => typeof o === 'string',
-    ),
+    additionalFindings,
     model,
     reviewedAt: new Date().toISOString(),
   }

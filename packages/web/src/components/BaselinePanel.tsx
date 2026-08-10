@@ -1,15 +1,19 @@
 import { OWASP_CATEGORIES, OWASP_RULES } from '@fydo/core'
-import type { AnalyzedCommit } from '@fydo/core'
+import type { UnifiedFinding } from '@fydo/core'
 
 interface Props {
-  commits: AnalyzedCommit[]
+  /** Open unified findings across unique analyzed commits */
+  openFindings: UnifiedFinding[]
 }
 
-export function BaselinePanel({ commits }: Props) {
+export function BaselinePanel({ openFindings }: Props) {
   const findingCounts = new Map<string, number>()
-  for (const c of commits) {
-    for (const f of c.findings) {
+  let uncategorized = 0
+  for (const f of openFindings) {
+    if (f.owaspId) {
       findingCounts.set(f.owaspId, (findingCounts.get(f.owaspId) ?? 0) + 1)
+    } else {
+      uncategorized++
     }
   }
 
@@ -39,6 +43,11 @@ export function BaselinePanel({ commits }: Props) {
           )
         })}
       </ul>
+      {uncategorized > 0 && (
+        <p className="muted small-text">
+          {uncategorized} open finding{uncategorized === 1 ? '' : 's'} without an OWASP category.
+        </p>
+      )}
     </section>
   )
 }

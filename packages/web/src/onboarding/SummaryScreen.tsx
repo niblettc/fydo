@@ -1,3 +1,4 @@
+import { mergeFindings } from '@fydo/core'
 import type { PreparationResult } from '../hooks/usePreparation'
 import type { RepoInfo } from '@fydo/core'
 
@@ -9,7 +10,14 @@ interface Props {
 }
 
 export function SummaryScreen({ repo, selectedBranches, result, onContinue }: Props) {
-  const findings = result.commits.reduce((n, c) => n + c.findings.length, 0)
+  const seen = new Set<string>()
+  let openFindings = 0
+  for (const c of result.commits) {
+    if (seen.has(c.sha)) continue
+    seen.add(c.sha)
+    const unified = mergeFindings(c.sha, c.findings, result.reviews[c.sha])
+    openFindings += unified.filter((f) => f.status === 'open').length
+  }
   const reviewCount = Object.keys(result.reviews).length
 
   return (
@@ -37,9 +45,9 @@ export function SummaryScreen({ repo, selectedBranches, result, onContinue }: Pr
             <div className="stat-value">{result.commits.length}</div>
             <div className="stat-label">Commits analyzed</div>
           </div>
-          <div className={`stat ${findings > 0 ? 'warn' : 'pass'}`}>
-            <div className="stat-value">{findings}</div>
-            <div className="stat-label">Initial findings</div>
+          <div className={`stat ${openFindings > 0 ? 'warn' : 'pass'}`}>
+            <div className="stat-value">{openFindings}</div>
+            <div className="stat-label">Open findings</div>
           </div>
         </div>
 

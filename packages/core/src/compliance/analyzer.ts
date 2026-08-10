@@ -150,13 +150,11 @@ export function analyzeCommit(detail: CommitDetail): AnalysisReport {
 
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 3, high: 2, medium: 1, low: 0 }
 
+/** Scanner-only status, before AI verdicts and manual triage: raw matches
+ * merely need review. The displayed status derives from unified findings
+ * (see compliance/merge.ts) once the AI review lands. */
 export function statusForFindings(findings: Finding[]): CommitStatus {
-  if (findings.length === 0) return 'pass'
-  const worst = findings.reduce(
-    (acc, f) => Math.max(acc, SEVERITY_ORDER[f.severity]),
-    0,
-  )
-  return worst >= 2 ? 'fail' : 'warn'
+  return findings.length === 0 ? 'clean' : 'needs-review'
 }
 
 export function sortFindings(findings: Finding[]): Finding[] {

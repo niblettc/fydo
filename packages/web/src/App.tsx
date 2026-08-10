@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { GitHubClient, GitHubError } from '@fydo/core'
-import type { AnalyzedCommit, BranchInfo, RateLimitInfo, RepoInfo } from '@fydo/core'
+import type { AnalyzedCommit, BranchInfo, RateLimitInfo, RepoInfo, UnifiedFinding } from '@fydo/core'
+import { commitView, viewKey } from './findings'
+import type { CommitView } from './findings'
 import { BaselinePanel } from './components/BaselinePanel'
 import { BranchPicker } from './components/BranchPicker'
 import { CommitFeed } from './components/CommitFeed'
@@ -17,6 +19,7 @@ import {
 import type { RepoRow } from './db'
 import { useAiReviews } from './hooks/useAiReviews'
 import { useAuth } from './hooks/useAuth'
+import { useFindingOverrides } from './hooks/useFindingOverrides'
 import { useMonitor } from './hooks/useMonitor'
 import type { MonitorSeed } from './hooks/useMonitor'
 import type { PreparationResult } from './hooks/usePreparation'
@@ -67,6 +70,7 @@ export default function App() {
   }, [auth.session])
 
   const ai = useAiReviews(repo, repoRow?.id ?? null)
+  const triage = useFindingOverrides(repoRow?.id ?? null)
 
   const repoRowRef = useRef(repoRow)
   repoRowRef.current = repoRow
@@ -196,21 +200,50 @@ export default function App() {
     void auth.signOut()
   }, [auth, switchRepo])
 
-  const stats = useMemo(() => {
-    const done = monitor.commits.filter((c) => c.status !== 'analyzing' && c.status !== 'error')
-    return {
-      analyzed: done.length,
-      compliant: done.filter((c) => c.status === 'pass').length,
-      violations: monitor.commits.reduce(
-        (n, c) => n + c.findings.filter((f) => f.severity === 'critical' || f.severity === 'high').length,
-        0,
-      ),
-      warnings: monitor.commits.reduce(
-        (n, c) => n + c.findings.filter((f) => f.severity === 'medium' || f.severity === 'low').length,
-        0,
-      ),
+  /** Unified view (scanner + AI + manual triage) per feed entry */
+  const views = useMemo(() => {
+    const map = new Map<string, CommitView>()
+    for (const c of monitor.commits) {
+      map.set(viewKey(c), commitView(c, ai.reviews[c.sha], triage.overrides))
     }
-  }, [monitor.commits])
+    return map
+  }, [monitor.commits, ai.reviews, triage.overrides])
+
+  /** Counters over unique commits (a sha on two monitored branches counts once) */
+  const stats = useMemo(() => {
+    const seen = new Set<string>()
+    let analyzed = 0
+    let open = 0
+    let critHigh = 0
+    let medLow = 0
+    for (const c of monitor.commits) {
+      if (c.status === 'analyzing' || c.status === 'error' || seen.has(c.sha)) continue
+      seen.add(c.sha)
+      analyzed++
+      const view = views.get(viewKey(c))
+      if (!view) continue
+      for (const f of view.findings) {
+        if (f.status !== 'open') continue
+        open++
+        if (f.severity === 'critical' || f.severity === 'high') critHigh++
+        else medLow++
+      }
+    }
+    return { analyzed, open, critHigh, medLow }
+  }, [monitor.commits, views])
+
+  /** Open findings across unique commits, for the OWASP baseline panel */
+  const openFindings = useMemo(() => {
+    const seen = new Set<string>()
+    const result: UnifiedFinding[] = []
+    for (const c of monitor.commits) {
+      if (seen.has(c.sha)) continue
+      seen.add(c.sha)
+      const view = views.get(viewKey(c))
+      if (view) result.push(...view.findings.filter((f) => f.status === 'open'))
+    }
+    return result
+  }, [monitor.commits, views])
 
   if (auth.loading) {
     return (
@@ -389,17 +422,17 @@ export default function App() {
           <div className="stat-value">{stats.analyzed}</div>
           <div className="stat-label">Commits analyzed</div>
         </div>
-        <div className="stat pass">
-          <div className="stat-value">{stats.compliant}</div>
-          <div className="stat-label">Compliant</div>
+        <div className={`stat ${stats.open === 0 ? 'pass' : ''}`}>
+          <div className="stat-value">{stats.open}</div>
+          <div className="stat-label">Open findings</div>
         </div>
-        <div className="stat fail">
-          <div className="stat-value">{stats.violations}</div>
-          <div className="stat-label">High/critical findings</div>
+        <div className={`stat ${stats.critHigh > 0 ? 'fail' : ''}`}>
+          <div className="stat-value">{stats.critHigh}</div>
+          <div className="stat-label">Critical/high open</div>
         </div>
-        <div className="stat warn">
-          <div className="stat-value">{stats.warnings}</div>
-          <div className="stat-label">Medium/low findings</div>
+        <div className={`stat ${stats.medLow > 0 ? 'warn' : ''}`}>
+          <div className="stat-value">{stats.medLow}</div>
+          <div className="stat-label">Medium/low open</div>
         </div>
       </div>
 
@@ -414,9 +447,15 @@ export default function App() {
             onChange={changeBranches}
           />
           <GraphPanel owner={repo.owner} repo={repo.repo} token={client.getToken()} />
-          <BaselinePanel commits={monitor.commits} />
+          <BaselinePanel openFindings={openFindings} />
         </aside>
-        <CommitFeed commits={monitor.commits} hasBranches={selectedBranches.length > 0} ai={ai} />
+        <CommitFeed
+          commits={monitor.commits}
+          hasBranches={selectedBranches.length > 0}
+          ai={ai}
+          views={views}
+          onTriage={triage.setStatus}
+        />
       </main>
     </div>
   )

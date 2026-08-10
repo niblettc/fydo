@@ -3,7 +3,14 @@
  * stores everything account-scoped so returning users skip onboarding. */
 
 import { supabase } from './supabase'
-import type { AiReview, AnalysisReport, AnalyzedCommit, CommitStatus, Finding } from '@fydo/core'
+import type {
+  AiReview,
+  AnalysisReport,
+  AnalyzedCommit,
+  CommitStatus,
+  Finding,
+  FindingOverride,
+} from '@fydo/core'
 
 export const FRAMEWORK_OWASP = 'owasp-top-10-2021'
 
@@ -169,6 +176,42 @@ export async function saveAiReviews(
   }))
   if (rows.length === 0) return
   const { error } = await supabase.from('ai_reviews').upsert(rows, { onConflict: 'repo_id,sha' })
+  if (error) throw new Error(error.message)
+}
+
+export async function loadFindingOverrides(
+  repoId: string,
+): Promise<Record<string, FindingOverride>> {
+  const { data, error } = await supabase
+    .from('finding_overrides')
+    .select('finding_id, status, note')
+    .eq('repo_id', repoId)
+  if (error) throw new Error(error.message)
+  const map: Record<string, FindingOverride> = {}
+  for (const row of data as Array<{ finding_id: string; status: FindingOverride['status']; note: string | null }>) {
+    map[row.finding_id] = { status: row.status, note: row.note ?? undefined }
+  }
+  return map
+}
+
+export async function upsertFindingOverride(
+  repoId: string,
+  sha: string,
+  findingId: string,
+  status: FindingOverride['status'],
+  note?: string,
+): Promise<void> {
+  const { error } = await supabase.from('finding_overrides').upsert(
+    {
+      repo_id: repoId,
+      sha,
+      finding_id: findingId,
+      status,
+      note: note ?? null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'repo_id,finding_id' },
+  )
   if (error) throw new Error(error.message)
 }
 

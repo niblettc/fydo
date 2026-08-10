@@ -32,7 +32,40 @@ export interface Finding {
   snippet: string
 }
 
-export type CommitStatus = 'pass' | 'warn' | 'fail' | 'analyzing' | 'error'
+export type CommitStatus = 'clean' | 'findings' | 'needs-review' | 'analyzing' | 'error'
+
+/** Which detector produced a unified finding */
+export type FindingSource = 'rules' | 'ai' | 'both'
+
+/** Lifecycle of a unified finding: AI verdicts and manual triage move it */
+export type FindingStatus = 'open' | 'needs-review' | 'dismissed' | 'resolved'
+
+/** One actionable issue, regardless of whether regex rules or AI found it.
+ * Detection source is metadata; commit status and all counts derive from
+ * the open/needs-review findings. */
+export interface UnifiedFinding {
+  /** Deterministic id (includes the commit sha) so manual triage can be persisted */
+  id: string
+  source: FindingSource
+  status: FindingStatus
+  /** AI explanation or manual triage note behind the current status */
+  statusReason?: string
+  severity: Severity
+  title: string
+  description: string
+  remediation?: string
+  owaspId?: string
+  file?: string
+  line?: number
+  snippet?: string
+  ruleId?: string
+}
+
+/** A manual triage decision persisted per account */
+export interface FindingOverride {
+  status: 'open' | 'dismissed' | 'resolved'
+  note?: string
+}
 
 /** Evaluation outcome for a single rule across the whole commit diff. */
 export interface RuleResult {
@@ -72,13 +105,25 @@ export interface AiFindingVerdict {
   suggestedAction?: string
 }
 
+/** A structured issue the AI spotted that the pattern rules did not flag */
+export interface AiAdditionalFinding {
+  title: string
+  severity: Severity
+  owaspId?: string
+  file?: string
+  line?: number
+  explanation: string
+  suggestedAction?: string
+}
+
 /** Result of an AI (Claude) triage pass over a commit's findings and diff. */
 export interface AiReview {
   summary: string
+  /** Narrative-only assessment; commit status derives from findings, not this */
   overallRisk: 'low' | 'medium' | 'high' | 'critical'
   verdicts: AiFindingVerdict[]
   /** Issues the AI spotted that the pattern rules did not flag */
-  additionalObservations: string[]
+  additionalFindings: AiAdditionalFinding[]
   /** Dependency-graph context that was supplied to the model, if available */
   impactContext?: string
   model: string
