@@ -286,8 +286,10 @@ export default function App() {
     let analyzed = 0
     let needsReview = 0
     let unresolved = 0
-    let critHigh = 0
-    let medLow = 0
+    let critical = 0
+    let high = 0
+    let medium = 0
+    let low = 0
     for (const c of monitor.commits) {
       if (c.status === 'analyzing' || c.status === 'error' || seen.has(c.sha)) continue
       seen.add(c.sha)
@@ -298,11 +300,13 @@ export default function App() {
       for (const f of view.findings) {
         if (f.status !== 'open' && f.status !== 'needs-review') continue
         unresolved++
-        if (f.severity === 'critical' || f.severity === 'high') critHigh++
-        else medLow++
+        if (f.severity === 'critical') critical++
+        else if (f.severity === 'high') high++
+        else if (f.severity === 'medium') medium++
+        else low++
       }
     }
-    return { analyzed, needsReview, unresolved, critHigh, medLow }
+    return { analyzed, needsReview, unresolved, critical, high, medium, low }
   }, [monitor.commits, views])
 
   /** Unresolved findings across unique commits, for the OWASP baseline panel */
@@ -526,13 +530,21 @@ export default function App() {
           <div className="stat-value">{stats.unresolved}</div>
           <div className="stat-label">Unresolved findings</div>
         </div>
-        <div className={`stat ${stats.critHigh > 0 ? 'fail' : ''}`}>
-          <div className="stat-value">{stats.critHigh}</div>
-          <div className="stat-label">Critical/high</div>
+        <div className={`stat ${stats.critical > 0 ? 'fail' : ''}`}>
+          <div className="stat-value">{stats.critical}</div>
+          <div className="stat-label">Critical</div>
         </div>
-        <div className={`stat ${stats.medLow > 0 ? 'warn' : ''}`}>
-          <div className="stat-value">{stats.medLow}</div>
-          <div className="stat-label">Medium/low</div>
+        <div className={`stat ${stats.high > 0 ? 'fail' : ''}`}>
+          <div className="stat-value">{stats.high}</div>
+          <div className="stat-label">High</div>
+        </div>
+        <div className={`stat ${stats.medium > 0 ? 'warn' : ''}`}>
+          <div className="stat-value">{stats.medium}</div>
+          <div className="stat-label">Medium</div>
+        </div>
+        <div className={`stat ${stats.low > 0 ? 'warn' : ''}`}>
+          <div className="stat-value">{stats.low}</div>
+          <div className="stat-label">Low</div>
         </div>
         <div className={`stat ${stats.needsReview > 0 ? 'warn' : ''}`}>
           <div className="stat-value">{stats.needsReview}</div>
