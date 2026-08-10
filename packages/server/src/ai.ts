@@ -14,32 +14,97 @@ const SYSTEM_PROMPT = `You are an expert application-security reviewer triaging 
 
 The findings come from simple regex-based rules, so false positives are common (test fixtures, example code, already-sanitized values, dead code). Judge each finding in the context of the diff provided.
 
-Respond with ONLY a JSON object, no markdown fences, matching this schema:
-{
-  "summary": "2-3 sentence overall assessment of this commit's security posture",
-  "overall_risk": "low" | "medium" | "high" | "critical",
-  "verdicts": [
-    {
-      "finding_index": <number, index of the finding you are judging>,
-      "verdict": "confirmed" | "false-positive" | "uncertain",
-      "explanation": "1-3 sentences: why, referencing the specific code",
-      "suggested_action": "concrete next step for the developer"
-    }
-  ],
-  "additional_findings": [
-    {
-      "title": "short issue title",
-      "severity": "critical" | "high" | "medium" | "low",
-      "owasp_category": "A01".."A10" if one clearly applies, else omit,
-      "file": "path of the affected file from the diff, if identifiable",
-      "line": <number, line in the new file, if identifiable>,
-      "explanation": "1-3 sentences: what the issue is and why it matters",
-      "suggested_action": "concrete next step for the developer"
-    }
-  ]
-}
+Submit your review by calling the submit_security_review tool. Rules:
+- Provide exactly one verdict per scanner finding.
+- Report every concrete security issue you see in the diff that the scanner missed as an entry in additional_findings. Each must be a discrete, actionable issue — not a general observation — with a file and line where identifiable.
+- Assign a risk category (severity: low, medium, high, or critical) to every additional finding, and an overall_risk category to the commit as a whole. You assign risk categories only — whether a finding is flagged "needs review" or "requires action" is decided by the system from your verdicts and findings, not by you.
+- Never raise an issue only in the summary. Anything worth mentioning must be itemized as a verdict or an additional finding; the summary is a narrative recap of what you itemized.
+- An overall_risk of medium or higher must be justified by at least one confirmed verdict or additional finding.
+- If there are no scanner findings, return an empty verdicts array and focus on additional_findings.`
 
-Provide exactly one verdict per finding. additional_findings are concrete security issues you see in the diff that the scanner missed — each must be a discrete, actionable issue, not a general observation. If there are no scanner findings, return an empty verdicts array and focus on additional_findings.`
+/** Forced tool call: the API enforces this schema, so findings can't hide in
+ * prose and enums can't drift (e.g. "Critical" vs "critical"). */
+const REVIEW_TOOL = {
+  name: 'submit_security_review',
+  description:
+    'Record the structured security review for this commit. Call exactly once with the complete review.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      summary: {
+        type: 'string',
+        description: "2-3 sentence overall assessment of this commit's security posture",
+      },
+      overall_risk: {
+        type: 'string',
+        enum: ['low', 'medium', 'high', 'critical'],
+        description:
+          "Your risk category for the commit as a whole, justified by the verdicts and findings you record",
+      },
+      verdicts: {
+        type: 'array',
+        description: 'Exactly one verdict per scanner finding',
+        items: {
+          type: 'object',
+          properties: {
+            finding_index: {
+              type: 'integer',
+              description: 'Index of the scanner finding being judged',
+            },
+            verdict: { type: 'string', enum: ['confirmed', 'false-positive', 'uncertain'] },
+            explanation: {
+              type: 'string',
+              description: '1-3 sentences: why, referencing the specific code',
+            },
+            suggested_action: {
+              type: 'string',
+              description: 'Concrete next step for the developer',
+            },
+          },
+          required: ['finding_index', 'verdict', 'explanation'],
+        },
+      },
+      additional_findings: {
+        type: 'array',
+        description: 'Discrete, actionable security issues in the diff that the scanner missed',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: 'Short issue title' },
+            severity: {
+              type: 'string',
+              enum: ['critical', 'high', 'medium', 'low'],
+              description: 'Risk category for this finding',
+            },
+            owasp_category: {
+              type: 'string',
+              pattern: '^A(0[1-9]|10)$',
+              description: 'OWASP Top 10 (2021) category id if one clearly applies',
+            },
+            file: {
+              type: 'string',
+              description: 'Path of the affected file from the diff, if identifiable',
+            },
+            line: {
+              type: 'integer',
+              description: 'Line in the new file, if identifiable',
+            },
+            explanation: {
+              type: 'string',
+              description: '1-3 sentences: what the issue is and why it matters',
+            },
+            suggested_action: {
+              type: 'string',
+              description: 'Concrete next step for the developer',
+            },
+          },
+          required: ['title', 'severity', 'explanation'],
+        },
+      },
+    },
+    required: ['summary', 'overall_risk', 'verdicts', 'additional_findings'],
+  },
+} as const
 
 export interface ReviewCommitInput {
   message: string
@@ -112,12 +177,15 @@ interface RawAdditionalFinding {
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low'] as const
 
-function parseReview(text: string, model: string): AiReview {
-  // Tolerate accidental markdown fences or prose around the JSON object
-  const start = text.indexOf('{')
-  const end = text.lastIndexOf('}')
-  if (start === -1 || end === -1) throw new Error('AI response did not contain JSON')
-  const raw = JSON.parse(text.slice(start, end + 1)) as {
+function lower(value: unknown): string {
+  return typeof value === 'string' ? value.toLowerCase().trim() : ''
+}
+
+/** Defensive normalizer over the forced tool-call input. The API already
+ * enforces the schema; this maps snake_case to our types and tolerates
+ * casing drift without silently downgrading valid severities. */
+function parseReview(input: unknown, model: string): AiReview {
+  const raw = (input ?? {}) as {
     summary?: string
     overall_risk?: string
     verdicts?: RawVerdict[]
@@ -126,21 +194,20 @@ function parseReview(text: string, model: string): AiReview {
 
   const validVerdicts: AiFindingVerdict[] = (raw.verdicts ?? [])
     .filter(
-      (v): v is Required<Pick<RawVerdict, 'finding_index' | 'verdict' | 'explanation'>> &
-        RawVerdict =>
-        typeof v.finding_index === 'number' &&
+      (v): v is Required<Pick<RawVerdict, 'finding_index' | 'explanation'>> & RawVerdict =>
+        typeof v?.finding_index === 'number' &&
         typeof v.explanation === 'string' &&
-        ['confirmed', 'false-positive', 'uncertain'].includes(v.verdict ?? ''),
+        ['confirmed', 'false-positive', 'uncertain'].includes(lower(v.verdict)),
     )
     .map((v) => ({
       findingIndex: v.finding_index,
-      verdict: v.verdict as AiFindingVerdict['verdict'],
+      verdict: lower(v.verdict) as AiFindingVerdict['verdict'],
       explanation: v.explanation,
       suggestedAction: v.suggested_action,
     }))
 
-  const risk = ['low', 'medium', 'high', 'critical'].includes(raw.overall_risk ?? '')
-    ? (raw.overall_risk as AiReview['overallRisk'])
+  const risk = (SEVERITIES as readonly string[]).includes(lower(raw.overall_risk))
+    ? (lower(raw.overall_risk) as AiReview['overallRisk'])
     : 'low'
 
   const additionalFindings: AiAdditionalFinding[] = (raw.additional_findings ?? [])
@@ -149,16 +216,15 @@ function parseReview(text: string, model: string): AiReview {
         typeof f?.title === 'string' &&
         f.title.length > 0 &&
         typeof f.explanation === 'string' &&
-        f.explanation.length > 0,
+        f.explanation.length > 0 &&
+        (SEVERITIES as readonly string[]).includes(lower(f.severity)),
     )
     .map((f) => ({
       title: f.title,
-      severity: (SEVERITIES as readonly string[]).includes(f.severity ?? '')
-        ? (f.severity as AiAdditionalFinding['severity'])
-        : 'medium',
+      severity: lower(f.severity) as AiAdditionalFinding['severity'],
       owaspId:
-        typeof f.owasp_category === 'string' && /^A(0[1-9]|10)$/.test(f.owasp_category)
-          ? f.owasp_category
+        typeof f.owasp_category === 'string' && /^A(0[1-9]|10)$/.test(f.owasp_category.trim())
+          ? f.owasp_category.trim()
           : undefined,
       file: typeof f.file === 'string' && f.file ? f.file : undefined,
       line: typeof f.line === 'number' ? f.line : undefined,
@@ -193,6 +259,8 @@ export async function reviewCommit(
       model: AI_MODEL,
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
+      tools: [REVIEW_TOOL],
+      tool_choice: { type: 'tool', name: REVIEW_TOOL.name },
       messages: [{ role: 'user', content: buildUserPrompt(commit, report, impactContext) }],
     }),
   })
@@ -209,12 +277,12 @@ export async function reviewCommit(
     throw new Error(message)
   }
 
-  const data = (await res.json()) as { content: Array<{ type: string; text?: string }> }
-  const text = data.content
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text ?? '')
-    .join('')
-  const review = parseReview(text, AI_MODEL)
+  const data = (await res.json()) as {
+    content: Array<{ type: string; name?: string; input?: unknown }>
+  }
+  const toolUse = data.content.find((b) => b.type === 'tool_use' && b.name === REVIEW_TOOL.name)
+  if (!toolUse) throw new Error('AI response did not include the structured review tool call.')
+  const review = parseReview(toolUse.input, AI_MODEL)
   review.impactContext = impactContext
   return review
 }

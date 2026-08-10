@@ -38,9 +38,19 @@ export function commitView(
     }
   }
   const findings = mergeFindings(commit.sha, commit.findings, review, overrides)
+  let status = statusForUnifiedFindings(findings)
+  // Safety net: a review that rates the commit high/critical without itemizing
+  // any findings is contradictory — surface it instead of showing Clean.
+  if (
+    status === 'clean' &&
+    review &&
+    (review.overallRisk === 'high' || review.overallRisk === 'critical')
+  ) {
+    status = 'needs-review'
+  }
   return {
     findings,
-    status: statusForUnifiedFindings(findings),
+    status,
     openCount: findings.filter((f) => f.status === 'open').length,
     needsReviewCount: findings.filter((f) => f.status === 'needs-review').length,
     worstSeverity: worstActiveSeverity(findings),

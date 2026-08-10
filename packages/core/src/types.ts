@@ -119,7 +119,8 @@ export interface AiAdditionalFinding {
 /** Result of an AI (Claude) triage pass over a commit's findings and diff. */
 export interface AiReview {
   summary: string
-  /** Narrative-only assessment; commit status derives from findings, not this */
+  /** The AI's risk category for the commit, shown in the review panel. The
+   * needs-review / requires-action flags still derive from findings, not this. */
   overallRisk: 'low' | 'medium' | 'high' | 'critical'
   verdicts: AiFindingVerdict[]
   /** Issues the AI spotted that the pattern rules did not flag */

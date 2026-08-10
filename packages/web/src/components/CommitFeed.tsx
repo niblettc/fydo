@@ -23,7 +23,7 @@ type TriageFn = (
 
 const STATUS_LABEL: Record<CommitStatus, string> = {
   clean: 'Clean',
-  findings: 'Findings',
+  findings: 'Requires action',
   'needs-review': 'Needs review',
   analyzing: 'Analyzing…',
   error: 'Error',
@@ -36,7 +36,7 @@ const SOURCE_LABEL: Record<FindingSource, string> = {
 }
 
 const FINDING_STATUS_LABEL: Record<FindingStatus, string> = {
-  open: 'Open',
+  open: 'Requires action',
   'needs-review': 'Needs review',
   dismissed: 'Dismissed',
   resolved: 'Resolved',
@@ -61,10 +61,11 @@ function commitBadgeText(view: CommitView): string {
   if (view.status === 'findings') {
     const n = view.openCount
     const sev = view.worstSeverity ? ` · ${view.worstSeverity}` : ''
-    return `${n} finding${n === 1 ? '' : 's'}${sev}`
+    return `Requires action · ${n}${sev}`
   }
   if (view.status === 'needs-review' && view.needsReviewCount > 0) {
-    return `Needs review · ${view.needsReviewCount}`
+    const sev = view.worstSeverity ? ` · ${view.worstSeverity}` : ''
+    return `Needs review · ${view.needsReviewCount}${sev}`
   }
   return STATUS_LABEL[view.status]
 }
@@ -248,6 +249,9 @@ function AiSummarySection({ commit, ai }: { commit: AnalyzedCommit; ai: AiReview
     <div className="ai-section">
       <div className="ai-section-head">
         <h3 className="evidence-heading">AI review</h3>
+        {review && (
+          <span className={`badge sev-${review.overallRisk}`}>{review.overallRisk} risk</span>
+        )}
         <button className="btn small-btn" onClick={() => ai.run(commit)} disabled={running}>
           {running ? 'Reviewing…' : review ? 'Re-run' : 'Run AI review'}
         </button>
