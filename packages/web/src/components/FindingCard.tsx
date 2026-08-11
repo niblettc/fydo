@@ -87,6 +87,12 @@ export function FindingCard({ finding, sha, onTriage, context, commitUrl }: Prop
         aria-expanded={expanded}
         onClick={() => setExpanded((v) => !v)}
       >
+        <div className="finding-title-row">
+          <strong className="finding-title">{finding.title}</strong>
+          <span className="chevron" aria-hidden="true">
+            {expanded ? '▾' : '▸'}
+          </span>
+        </div>
         <div className="finding-head">
           <span className={`badge sev-${finding.severity}`}>{finding.severity}</span>
           <span className={`badge source-${finding.source}`} title={SOURCE_TOOLTIP[finding.source]}>
@@ -105,15 +111,11 @@ export function FindingCard({ finding, sha, onTriage, context, commitUrl }: Prop
               {category.code} {category.name}
             </span>
           )}
-          <strong className="finding-title">{finding.title}</strong>
           <span
             className={`badge fstatus-${finding.status}`}
             title={STATUS_TOOLTIP[finding.status]}
           >
             {FINDING_STATUS_LABEL[finding.status]}
-          </span>
-          <span className="chevron" aria-hidden="true">
-            {expanded ? '▾' : '▸'}
           </span>
         </div>
         {!expanded && (

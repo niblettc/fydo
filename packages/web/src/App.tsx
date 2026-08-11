@@ -13,6 +13,7 @@ import { GraphPanel } from './components/GraphPanel'
 import { ProjectSwitcher } from './components/ProjectSwitcher'
 import {
   FRAMEWORK_OWASP,
+  deleteRepo,
   fetchMyRepos,
   loadAiReviews,
   loadCommitAnalyses,
@@ -271,6 +272,36 @@ export default function App() {
       .catch(() => {})
   }, [ai])
 
+  /** Delete a project and its persisted analyses/reviews/overrides (cascade).
+   * If it was the active project, fall back to another one or the wizard. */
+  const deleteProject = useCallback(
+    async (row: RepoRow) => {
+      const confirmed = window.confirm(
+        `Delete project ${row.fullName}?\n\nThis permanently removes its saved commit analyses, AI reviews, and triage decisions from your account. The GitHub repository itself is not touched.`,
+      )
+      if (!confirmed) return
+      try {
+        await deleteRepo(row.id)
+      } catch (e) {
+        setConnectError(e instanceof Error ? e.message : String(e))
+        return
+      }
+      if (localStorage.getItem(LAST_PROJECT_KEY) === row.id) {
+        localStorage.removeItem(LAST_PROJECT_KEY)
+      }
+      setSavedRepos((prev) => prev.filter((r) => r.id !== row.id))
+      if (repoRow?.id === row.id) {
+        const remaining = projects.filter((p) => p.id !== row.id)
+        if (remaining.length > 0) {
+          void openProject(remaining[0])
+        } else {
+          startNewProject()
+        }
+      }
+    },
+    [repoRow, projects, openProject, startNewProject],
+  )
+
   /** Abandon the wizard and return to a project dashboard */
   const cancelWizard = useCallback(() => {
     if (projects.length === 0) return
@@ -508,6 +539,7 @@ export default function App() {
                 switching={switching}
                 onSelect={(row) => void openProject(row)}
                 onNewProject={startNewProject}
+                onDelete={(row) => void deleteProject(row)}
               />
               <a href={repo.htmlUrl} target="_blank" rel="noreferrer" title="View on GitHub">
                 ↗

@@ -94,6 +94,13 @@ export async function updateRepoBranches(repoId: string, selectedBranches: strin
   if (error) throw new Error(error.message)
 }
 
+/** Deletes a project; commit analyses, AI reviews, and finding overrides
+ * cascade via their repo_id foreign keys. */
+export async function deleteRepo(repoId: string): Promise<void> {
+  const { error } = await supabase.from('repos').delete().eq('id', repoId)
+  if (error) throw new Error(error.message)
+}
+
 interface CommitRecord {
   sha: string
   branch: string

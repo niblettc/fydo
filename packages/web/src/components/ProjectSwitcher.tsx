@@ -10,6 +10,7 @@ interface Props {
   switching: boolean
   onSelect: (project: RepoRow) => void
   onNewProject: () => void
+  onDelete: (project: RepoRow) => void
 }
 
 export function ProjectSwitcher({
@@ -19,6 +20,7 @@ export function ProjectSwitcher({
   switching,
   onSelect,
   onNewProject,
+  onDelete,
 }: Props) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -56,19 +58,32 @@ export function ProjectSwitcher({
         <div className="project-menu" role="menu">
           <div className="project-menu-heading">Projects</div>
           {projects.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              role="menuitem"
-              className={`project-item ${p.id === activeId ? 'active' : ''}`}
-              onClick={() => {
-                setOpen(false)
-                if (p.id !== activeId) onSelect(p)
-              }}
-            >
-              <span className="project-item-name">{p.fullName}</span>
-              {p.id === activeId && <span className="project-check">✓</span>}
-            </button>
+            <div key={p.id} className={`project-row ${p.id === activeId ? 'active' : ''}`}>
+              <button
+                type="button"
+                role="menuitem"
+                className="project-row-select"
+                onClick={() => {
+                  setOpen(false)
+                  if (p.id !== activeId) onSelect(p)
+                }}
+              >
+                <span className="project-item-name">{p.fullName}</span>
+                {p.id === activeId && <span className="project-check">✓</span>}
+              </button>
+              <button
+                type="button"
+                className="project-row-delete"
+                title={`Delete ${p.fullName}`}
+                aria-label={`Delete project ${p.fullName}`}
+                onClick={() => {
+                  setOpen(false)
+                  onDelete(p)
+                }}
+              >
+                ✕
+              </button>
+            </div>
           ))}
           <div className="project-menu-divider" />
           <button
