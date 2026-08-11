@@ -229,7 +229,13 @@ function EvidencePanel({
           <h3 className="evidence-heading">Findings ({active.length})</h3>
           <div className="findings">
             {active.map((f) => (
-              <FindingCard key={f.id} sha={commit.sha} finding={f} onTriage={onTriage} />
+              <FindingCard
+                key={f.id}
+                sha={commit.sha}
+                finding={f}
+                onTriage={onTriage}
+                commitUrl={commit.url}
+              />
             ))}
           </div>
         </>
@@ -240,7 +246,13 @@ function EvidencePanel({
           <h3 className="evidence-heading">Dismissed & resolved ({inactive.length})</h3>
           <div className="findings">
             {inactive.map((f) => (
-              <FindingCard key={f.id} sha={commit.sha} finding={f} onTriage={onTriage} />
+              <FindingCard
+                key={f.id}
+                sha={commit.sha}
+                finding={f}
+                onTriage={onTriage}
+                commitUrl={commit.url}
+              />
             ))}
           </div>
         </>

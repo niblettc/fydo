@@ -1354,8 +1354,17 @@ button.stat:hover {
   color: var(--pass);
 }
 
+/* Dismissed/resolved: subdued accents but still-readable text */
 .finding-inactive {
-  opacity: 0.55;
+  border-left-color: var(--border) !important;
+}
+
+.finding-inactive .finding-title {
+  color: var(--text-muted);
+}
+
+.finding-inactive .finding-head .badge {
+  opacity: 0.65;
 }
 
 .finding-actions {
@@ -1430,6 +1439,24 @@ button.stat:hover {
   border-left-color: var(--low);
 }
 
+.finding-toggle {
+  display: block;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.finding-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
 .finding-head {
   display: flex;
   align-items: center;
@@ -1437,11 +1464,84 @@ button.stat:hover {
   flex-wrap: wrap;
 }
 
+.finding-title {
+  color: var(--text);
+}
+
+.finding-head .chevron {
+  margin-left: auto;
+}
+
+.finding-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 5px;
+  min-width: 0;
+}
+
+.finding-loc-inline {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.finding-desc-clamp {
+  font-size: 13px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.finding-body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.finding-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.finding-callout {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.finding-meta {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .finding-loc {
+  display: inline-block;
   font-family: var(--mono);
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 4px;
+}
+
+a.finding-loc {
+  text-decoration: none;
+}
+
+a.finding-loc:hover {
+  color: var(--text);
+  text-decoration: underline;
 }
 
 .finding-snippet {
