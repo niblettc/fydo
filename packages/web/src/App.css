@@ -1462,6 +1462,122 @@ button.stat:hover {
   margin: 6px 0 0;
 }
 
+/* ── Impact map (React Flow) ─────────────────────────────────────────────── */
+.impact-map-section {
+  margin: 12px 0;
+}
+
+.impact-map {
+  height: 320px;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-raised);
+}
+
+.impact-map .react-flow {
+  background: transparent;
+}
+
+.impact-node {
+  min-width: 170px;
+  max-width: 230px;
+  padding: 8px 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.impact-node-changed {
+  border-color: var(--accent);
+}
+
+.impact-node-sev-critical {
+  box-shadow: 0 0 0 1.5px var(--critical);
+}
+
+.impact-node-sev-high {
+  box-shadow: 0 0 0 1.5px var(--high);
+}
+
+.impact-node-sev-medium {
+  box-shadow: 0 0 0 1.5px var(--medium);
+}
+
+.impact-node-sev-low {
+  box-shadow: 0 0 0 1.5px var(--low);
+}
+
+.impact-node-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.impact-node-dir {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.impact-node-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.impact-chip {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.impact-chip-changed {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.impact-chip-sev-critical {
+  border-color: var(--critical);
+  color: var(--critical);
+}
+
+.impact-chip-sev-high {
+  border-color: var(--high);
+  color: var(--high);
+}
+
+.impact-chip-sev-medium {
+  border-color: var(--medium);
+  color: var(--medium);
+}
+
+.impact-chip-sev-low {
+  border-color: var(--low);
+  color: var(--low);
+}
+
+.impact-handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.impact-edge .react-flow__edge-path {
+  stroke: var(--border);
+}
+
 /* ── Findings ────────────────────────────────────────────────────────────── */
 .findings {
   display: flex;

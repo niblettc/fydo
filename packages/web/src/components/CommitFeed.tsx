@@ -5,6 +5,7 @@ import type { CommitView, SeverityFilter, StatusFilter } from '../findings'
 import { commitView, findingMatchesFilters, viewKey } from '../findings'
 import { FindingCard } from './FindingCard'
 import type { TriageFn } from './FindingCard'
+import { ImpactMap } from './ImpactMap'
 import type { AnalysisReport, AnalyzedCommit, CommitStatus, FileScan } from '@fydo/core'
 
 const STATUS_LABEL: Record<CommitStatus, string> = {
@@ -197,6 +198,9 @@ function EvidencePanel({
   const scannedFiles = report.fileScans.filter((f) => f.scanned).length
   const active = view.findings.filter((f) => f.status === 'open' || f.status === 'needs-review')
   const inactive = view.findings.filter((f) => f.status === 'dismissed' || f.status === 'resolved')
+  // Commit URLs look like https://github.com/{owner}/{repo}/commit/{sha}
+  const [ownerName, repoName] = new URL(commit.url).pathname.split('/').slice(1, 3)
+  const changedPaths = report.fileScans.map((f) => f.filename).slice(0, 50)
 
   return (
     <div className="evidence">
@@ -221,6 +225,8 @@ function EvidencePanel({
         )}{' '}
         <span className="muted">Analyzed {new Date(report.analyzedAt).toLocaleString()}.</span>
       </p>
+
+      <ImpactMap owner={ownerName} repo={repoName} sha={commit.sha} paths={changedPaths} />
 
       <AiSummarySection commit={commit} ai={ai} />
 

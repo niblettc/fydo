@@ -36,6 +36,22 @@ export interface ImpactResponse {
   downstreamComponents: string[]
 }
 
+export interface ImpactGraphNode {
+  path: string
+  changed: boolean
+  /** Import hops from the nearest changed file (0 = changed) */
+  distance: number
+  component: string | null
+  /** Worst severity among prior findings affecting this file, if any */
+  severity: string | null
+}
+
+export interface ImpactGraph {
+  nodes: ImpactGraphNode[]
+  edges: Array<{ source: string; target: string }>
+  truncated: boolean
+}
+
 export interface CommitRecord {
   sha: string
   branch: string
@@ -123,6 +139,18 @@ export function fetchImpact(
   paths: string[],
 ): Promise<ImpactResponse> {
   return api<ImpactResponse>(`/api/repos/${owner}/${repo}/impact`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ paths }),
+  })
+}
+
+export function fetchImpactGraph(
+  owner: string,
+  repo: string,
+  paths: string[],
+): Promise<ImpactGraph> {
+  return api<ImpactGraph>(`/api/repos/${owner}/${repo}/impact-graph`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ paths }),

@@ -124,6 +124,18 @@ app.post<{ Params: RepoParams; Body: { paths: string[] } }>(
   },
 )
 
+app.post<{ Params: RepoParams; Body: { paths: string[] } }>(
+  '/api/repos/:owner/:repo/impact-graph',
+  async (req, reply) => {
+    const { owner, repo } = req.params
+    const paths = req.body?.paths
+    if (!Array.isArray(paths) || paths.length === 0) {
+      return reply.code(400).send({ error: 'body must include a non-empty "paths" array' })
+    }
+    return graph.impactSubgraph(`${owner}/${repo}`, paths.slice(0, 50))
+  },
+)
+
 try {
   await graph.init()
   app.log.info('Neo4j constraints and OWASP categories initialized')

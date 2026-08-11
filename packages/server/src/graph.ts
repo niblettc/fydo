@@ -53,6 +53,33 @@ export interface ImpactResult {
   promptContext: string
 }
 
+export interface ImpactGraphNode {
+  path: string
+  changed: boolean
+  /** Import hops from the nearest changed file (0 = changed) */
+  distance: number
+  component: string | null
+  /** Worst severity among prior findings affecting this file, if any */
+  severity: string | null
+}
+
+export interface ImpactGraph {
+  nodes: ImpactGraphNode[]
+  edges: Array<{ source: string; target: string }>
+  /** True when the dependent set was cut off at the node cap */
+  truncated: boolean
+}
+
+/** Node cap keeps the visualization readable and the queries cheap */
+const IMPACT_GRAPH_MAX_NODES = 60
+
+const SEVERITY_RANK = ['critical', 'high', 'medium', 'low']
+
+function worstSeverity(severities: string[]): string | null {
+  for (const s of SEVERITY_RANK) if (severities.includes(s)) return s
+  return null
+}
+
 const fileId = (repo: string, path: string) => `${repo}#${path}`
 
 export class Graph {
@@ -345,6 +372,89 @@ export class Graph {
     }
     result.promptContext = buildPromptContext(result)
     return result
+  }
+
+  /** Explicit nodes + import edges around a set of changed files, for the
+   * commit impact-map visualization. Unlike impact(), which flattens
+   * dependents into prompt text, this preserves the graph structure. */
+  async impactSubgraph(repo: string, paths: string[]): Promise<ImpactGraph> {
+    const ids = paths.map((p) => fileId(repo, p))
+    const depLimit = Math.max(0, IMPACT_GRAPH_MAX_NODES - paths.length)
+
+    const depsRes = await this.run(
+      `MATCH (f:File) WHERE f.id IN $ids
+       MATCH p = (dep:File)-[:IMPORTS*1..3]->(f)
+       WHERE NOT dep.id IN $ids
+       WITH dep, min(length(p)) AS distance
+       ORDER BY distance ASC, dep.path ASC
+       LIMIT ${depLimit + 1}
+       RETURN dep.id AS id, dep.path AS path, distance`,
+      { ids },
+    )
+
+    const truncated = depsRes.records.length > depLimit
+    const depRecords = depsRes.records.slice(0, depLimit).map((r) => ({
+      id: r.get('id') as string,
+      path: r.get('path') as string,
+      distance: r.get('distance') as number,
+    }))
+
+    const allIds = [...ids, ...depRecords.map((d) => d.id)]
+    const [metaRes, edgesRes] = await Promise.all([
+      this.run(
+        `MATCH (f:File) WHERE f.id IN $allIds
+         OPTIONAL MATCH (f)-[:PART_OF]->(c:Component)
+         OPTIONAL MATCH (fd:Finding {repo: $repo})-[:AFFECTS]->(f)
+         RETURN f.id AS id, c.name AS component, collect(DISTINCT fd.severity) AS severities`,
+        { allIds, repo },
+      ),
+      this.run(
+        `MATCH (a:File)-[:IMPORTS]->(b:File)
+         WHERE a.id IN $allIds AND b.id IN $allIds
+         RETURN DISTINCT a.path AS source, b.path AS target`,
+        { allIds },
+      ),
+    ])
+
+    const meta = new Map(
+      metaRes.records.map((r) => [
+        r.get('id') as string,
+        {
+          component: (r.get('component') as string | null) ?? null,
+          severity: worstSeverity((r.get('severities') as string[]) ?? []),
+        },
+      ]),
+    )
+
+    // Changed files are included even when absent from the graph (e.g. files
+    // the ingester skipped), so the map always shows what the commit touched.
+    const nodes: ImpactGraphNode[] = paths.map((path) => {
+      const m = meta.get(fileId(repo, path))
+      return {
+        path,
+        changed: true,
+        distance: 0,
+        component: m?.component ?? null,
+        severity: m?.severity ?? null,
+      }
+    })
+    for (const dep of depRecords) {
+      const m = meta.get(dep.id)
+      nodes.push({
+        path: dep.path,
+        changed: false,
+        distance: dep.distance,
+        component: m?.component ?? null,
+        severity: m?.severity ?? null,
+      })
+    }
+
+    const edges = edgesRes.records.map((r) => ({
+      source: r.get('source') as string,
+      target: r.get('target') as string,
+    }))
+
+    return { nodes, edges, truncated }
   }
 
   async stats(repo: string) {
