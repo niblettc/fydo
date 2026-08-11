@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { OWASP_CATEGORIES } from '@fydo/core'
 import type { AiReviewsState } from '../hooks/useAiReviews'
-import type { CommitView } from '../findings'
-import { commitView, viewKey } from '../findings'
+import type { CommitView, SeverityFilter, StatusFilter } from '../findings'
+import { commitView, findingMatchesFilters, viewKey } from '../findings'
 import { FindingCard } from './FindingCard'
 import type { TriageFn } from './FindingCard'
 import type { AnalysisReport, AnalyzedCommit, CommitStatus, FileScan } from '@fydo/core'
@@ -321,6 +321,25 @@ function CommitCard({
   )
 }
 
+export interface CommitFilter {
+  severity: SeverityFilter
+  status: StatusFilter
+}
+
+const FILTER_STATUS_WORD: Record<StatusFilter, string> = {
+  active: 'active',
+  open: 'requires-action',
+  'needs-review': 'needs-review',
+  closed: 'dismissed/resolved',
+  all: '',
+}
+
+function filterLabel(filter: CommitFilter): string {
+  const sev = filter.severity === 'all' ? '' : `${filter.severity} `
+  const status = FILTER_STATUS_WORD[filter.status]
+  return `Commits with ${sev}${status ? `${status} ` : ''}findings`.replace(/\s+/g, ' ')
+}
+
 interface Props {
   commits: AnalyzedCommit[]
   hasBranches: boolean
@@ -329,12 +348,33 @@ interface Props {
   onTriage: TriageFn
   /** Commit-level rollups (deduped by sha) for the feed header */
   summary: { analyzed: number; withFindings: number; needsReview: number }
+  /** When set (via the stat cards), only commits containing a matching finding show */
+  filter: CommitFilter | null
+  onClearFilter: () => void
 }
 
-export function CommitFeed({ commits, hasBranches, ai, views, onTriage, summary }: Props) {
+export function CommitFeed({
+  commits,
+  hasBranches,
+  ai,
+  views,
+  onTriage,
+  summary,
+  filter,
+  onClearFilter,
+}: Props) {
   const sorted = [...commits].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   )
+  const visible = filter
+    ? sorted.filter((c) => {
+        const view = views.get(viewKey(c))
+        return view?.findings.some((f) =>
+          findingMatchesFilters(f, filter.status, filter.severity),
+        )
+      })
+    : sorted
+
   return (
     <section className="panel feed">
       <div className="panel-header">
@@ -344,14 +384,27 @@ export function CommitFeed({ commits, hasBranches, ai, views, onTriage, summary 
           {summary.needsReview} awaiting review
         </span>
       </div>
+      {filter && (
+        <div className="feed-filter-chip">
+          <span>
+            {filterLabel(filter)} · {visible.length} of {sorted.length}
+          </span>
+          <button type="button" className="btn small-btn" onClick={onClearFilter}>
+            Clear
+          </button>
+        </div>
+      )}
       {!hasBranches && (
         <p className="muted empty-row">Select one or more branches to start monitoring.</p>
       )}
       {hasBranches && commits.length === 0 && (
         <p className="muted empty-row">Fetching commits…</p>
       )}
+      {hasBranches && commits.length > 0 && filter && visible.length === 0 && (
+        <p className="muted empty-row">No commits match the filter.</p>
+      )}
       <ul className="commit-list">
-        {sorted.map((c) => (
+        {visible.map((c) => (
           <CommitCard
             key={viewKey(c)}
             commit={c}

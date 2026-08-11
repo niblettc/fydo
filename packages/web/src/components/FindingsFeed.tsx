@@ -1,11 +1,10 @@
 import { useState } from 'react'
-import type { Severity } from '@fydo/core'
-import type { FindingFeedItem } from '../findings'
+import { findingMatchesFilters } from '../findings'
+import type { FindingFeedItem, SeverityFilter, StatusFilter } from '../findings'
 import { FindingCard } from './FindingCard'
 import type { TriageFn } from './FindingCard'
 
-export type StatusFilter = 'active' | 'open' | 'needs-review' | 'closed' | 'all'
-export type SeverityFilter = Severity | 'all'
+export type { SeverityFilter, StatusFilter } from '../findings'
 
 const STATUS_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: 'active', label: 'Active (open + needs review)' },
@@ -22,20 +21,6 @@ const SEVERITY_OPTIONS: Array<{ value: SeverityFilter; label: string }> = [
   { value: 'medium', label: 'Medium' },
   { value: 'low', label: 'Low' },
 ]
-
-function matchesStatus(item: FindingFeedItem, filter: StatusFilter): boolean {
-  const s = item.finding.status
-  switch (filter) {
-    case 'active':
-      return s === 'open' || s === 'needs-review'
-    case 'closed':
-      return s === 'dismissed' || s === 'resolved'
-    case 'all':
-      return true
-    default:
-      return s === filter
-  }
-}
 
 function matchesSearch(item: FindingFeedItem, query: string): boolean {
   if (!query) return true
@@ -73,8 +58,7 @@ export function FindingsFeed({
 
   const visible = items.filter(
     (item) =>
-      matchesStatus(item, statusFilter) &&
-      (severityFilter === 'all' || item.finding.severity === severityFilter) &&
+      findingMatchesFilters(item.finding, statusFilter, severityFilter) &&
       matchesSearch(item, query.trim()),
   )
 

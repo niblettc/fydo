@@ -3,12 +3,12 @@ import './App.css'
 import { GitHubClient, GitHubError } from '@fydo/core'
 import type { AnalyzedCommit, BranchInfo, RateLimitInfo, RepoInfo, UnifiedFinding } from '@fydo/core'
 import { commitView, findingFeedItems, viewKey } from './findings'
-import type { CommitView } from './findings'
+import type { CommitView, SeverityFilter, StatusFilter } from './findings'
 import { FindingsFeed } from './components/FindingsFeed'
-import type { SeverityFilter, StatusFilter } from './components/FindingsFeed'
 import { BaselinePanel } from './components/BaselinePanel'
 import { BranchPicker } from './components/BranchPicker'
 import { CommitFeed } from './components/CommitFeed'
+import type { CommitFilter } from './components/CommitFeed'
 import { GraphPanel } from './components/GraphPanel'
 import { ProjectSwitcher } from './components/ProjectSwitcher'
 import {
@@ -64,6 +64,8 @@ export default function App() {
   const [tab, setTab] = useState<'findings' | 'commits' | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all')
+  /** Extra filter for the commits feed; null = show every commit */
+  const [commitFilter, setCommitFilter] = useState<CommitFilter | null>(null)
 
   const client = useMemo(() => {
     if (!auth.githubToken) return null
@@ -152,6 +154,7 @@ export default function App() {
         setTab(null)
         setStatusFilter('active')
         setSeverityFilter('all')
+        setCommitFilter(null)
         localStorage.setItem(LAST_PROJECT_KEY, row.id)
         setStep('dashboard')
       } catch (e) {
@@ -232,6 +235,7 @@ export default function App() {
       setTab(null)
       setStatusFilter('active')
       setSeverityFilter('all')
+      setCommitFilter(null)
       setStep('summary')
     },
     [ai],
@@ -324,12 +328,18 @@ export default function App() {
 
   const activeTab = tab ?? (stats.findings.active > 0 ? 'findings' : 'commits')
 
-  /** Stat-card click: jump to the findings tab pre-filtered */
-  const showFindings = useCallback((severity: SeverityFilter, status: StatusFilter) => {
-    setTab('findings')
-    setSeverityFilter(severity)
-    setStatusFilter(status)
-  }, [])
+  /** Stat-card click: filter whichever feed tab is currently active */
+  const applyStatFilter = useCallback(
+    (severity: SeverityFilter, status: StatusFilter) => {
+      if (activeTab === 'commits') {
+        setCommitFilter({ severity, status })
+      } else {
+        setSeverityFilter(severity)
+        setStatusFilter(status)
+      }
+    },
+    [activeTab],
+  )
 
   /** Unresolved findings across unique commits, for the OWASP baseline panel */
   const openFindings = useMemo(() => {
@@ -549,7 +559,7 @@ export default function App() {
           <button
             type="button"
             className={`stat ${stats.findings.active === 0 ? 'pass' : ''}`}
-            onClick={() => showFindings('all', 'active')}
+            onClick={() => applyStatFilter('all', 'active')}
           >
             <div className="stat-value">{stats.findings.active}</div>
             <div className="stat-label">Active findings</div>
@@ -557,7 +567,7 @@ export default function App() {
           <button
             type="button"
             className={`stat ${stats.findings.critical > 0 ? 'sev-critical' : ''}`}
-            onClick={() => showFindings('critical', 'active')}
+            onClick={() => applyStatFilter('critical', 'active')}
           >
             <div className="stat-value">{stats.findings.critical}</div>
             <div className="stat-label">Critical</div>
@@ -565,7 +575,7 @@ export default function App() {
           <button
             type="button"
             className={`stat ${stats.findings.high > 0 ? 'sev-high' : ''}`}
-            onClick={() => showFindings('high', 'active')}
+            onClick={() => applyStatFilter('high', 'active')}
           >
             <div className="stat-value">{stats.findings.high}</div>
             <div className="stat-label">High</div>
@@ -573,7 +583,7 @@ export default function App() {
           <button
             type="button"
             className={`stat ${stats.findings.medium > 0 ? 'sev-medium' : ''}`}
-            onClick={() => showFindings('medium', 'active')}
+            onClick={() => applyStatFilter('medium', 'active')}
           >
             <div className="stat-value">{stats.findings.medium}</div>
             <div className="stat-label">Medium</div>
@@ -581,7 +591,7 @@ export default function App() {
           <button
             type="button"
             className={`stat ${stats.findings.low > 0 ? 'sev-low' : ''}`}
-            onClick={() => showFindings('low', 'active')}
+            onClick={() => applyStatFilter('low', 'active')}
           >
             <div className="stat-value">{stats.findings.low}</div>
             <div className="stat-label">Low</div>
@@ -589,7 +599,7 @@ export default function App() {
           <button
             type="button"
             className={`stat ${stats.findings.awaitingReview > 0 ? 'warn' : ''}`}
-            onClick={() => showFindings('all', 'needs-review')}
+            onClick={() => applyStatFilter('all', 'needs-review')}
           >
             <div className="stat-value">{stats.findings.awaitingReview}</div>
             <div className="stat-label">Awaiting review</div>
@@ -650,6 +660,8 @@ export default function App() {
               views={views}
               onTriage={triage.setStatus}
               summary={stats.commits}
+              filter={commitFilter}
+              onClearFilter={() => setCommitFilter(null)}
             />
           )}
         </div>

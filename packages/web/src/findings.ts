@@ -8,9 +8,38 @@ import type {
   AnalyzedCommit,
   CommitStatus,
   FindingOverride,
+  FindingStatus,
   Severity,
   UnifiedFinding,
 } from '@fydo/core'
+
+/** Filters the stat cards and feeds share; 'active' = open + needs-review */
+export type StatusFilter = 'active' | 'open' | 'needs-review' | 'closed' | 'all'
+export type SeverityFilter = Severity | 'all'
+
+export function matchesStatusFilter(status: FindingStatus, filter: StatusFilter): boolean {
+  switch (filter) {
+    case 'active':
+      return status === 'open' || status === 'needs-review'
+    case 'closed':
+      return status === 'dismissed' || status === 'resolved'
+    case 'all':
+      return true
+    default:
+      return status === filter
+  }
+}
+
+export function findingMatchesFilters(
+  finding: Pick<UnifiedFinding, 'status' | 'severity'>,
+  status: StatusFilter,
+  severity: SeverityFilter,
+): boolean {
+  return (
+    matchesStatusFilter(finding.status, status) &&
+    (severity === 'all' || finding.severity === severity)
+  )
+}
 
 /** Overall risk ratings that must surface even without itemized findings */
 const RISK_SEVERITY: Partial<Record<AiReview['overallRisk'], Severity>> = {

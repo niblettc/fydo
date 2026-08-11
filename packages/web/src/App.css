@@ -779,6 +779,20 @@ button.stat:hover {
   margin-bottom: 14px;
 }
 
+.feed-filter-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
 .findings-filters .inline-select {
   padding: 6px 8px;
 }
