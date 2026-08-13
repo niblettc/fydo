@@ -1,5 +1,7 @@
 export * from './types'
 export * from './github'
+export * from './gitlab'
+export * from './urls'
 export * from './compliance/owasp'
 export * from './compliance/analyzer'
 export * from './compliance/merge'

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { analyzeCommit, statusForFindings } from '@fydo/core'
-import type { GitHubClient } from '@fydo/core'
+import type { GitClient } from '@fydo/core'
 import type { AnalyzedCommit, RepoInfo } from '@fydo/core'
 import { recordCommitToGraph } from '../backend'
 
@@ -28,7 +28,7 @@ function commitKey(branch: string, sha: string) {
 }
 
 export function useMonitor(
-  client: GitHubClient | null,
+  client: GitClient | null,
   repo: RepoInfo | null,
   branches: string[],
   pollIntervalSec: number,
@@ -94,7 +94,7 @@ export function useMonitor(
               const report = analyzeCommit(detail)
 
               // Feed the dependency graph backend; monitoring works fine without it.
-              void recordCommitToGraph(repo.owner, repo.repo, client.getToken(), {
+              void recordCommitToGraph(repo.provider, repo.fullName, client.getToken(), {
                 sha: item.sha,
                 branch,
                 message: placeholder.message,

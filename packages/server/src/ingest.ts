@@ -1,4 +1,5 @@
-import { GitHubClient } from '@fydo/core'
+import { createGitClient, splitFullName } from '@fydo/core'
+import type { GitProvider } from '@fydo/core'
 import { config } from './config'
 import type { Graph, IngestedFile } from './graph'
 import { detectLanguage, parseFile } from './parse'
@@ -19,18 +20,18 @@ const IGNORED_PATHS = /(^|\/)(node_modules|dist|build|out|vendor|venv|\.venv|__p
 
 const jobs = new Map<string, IngestJob>()
 
-export function getJob(repoFullName: string): IngestJob | null {
-  return jobs.get(repoFullName) ?? null
+export function getJob(graphKey: string): IngestJob | null {
+  return jobs.get(graphKey) ?? null
 }
 
 export function startIngest(
   graph: Graph,
-  owner: string,
-  repo: string,
+  provider: GitProvider,
+  fullName: string,
+  graphKey: string,
   token: string,
 ): IngestJob {
-  const fullName = `${owner}/${repo}`
-  const existing = jobs.get(fullName)
+  const existing = jobs.get(graphKey)
   if (existing?.state === 'running') return existing
 
   const job: IngestJob = {
@@ -43,9 +44,9 @@ export function startIngest(
     error: null,
     truncatedTree: false,
   }
-  jobs.set(fullName, job)
+  jobs.set(graphKey, job)
 
-  void runIngest(graph, owner, repo, token, job).catch((e: unknown) => {
+  void runIngest(graph, provider, fullName, graphKey, token, job).catch((e: unknown) => {
     job.state = 'error'
     job.error = e instanceof Error ? e.message : String(e)
     job.finishedAt = new Date().toISOString()
@@ -56,13 +57,14 @@ export function startIngest(
 
 async function runIngest(
   graph: Graph,
-  owner: string,
-  repo: string,
+  provider: GitProvider,
+  fullName: string,
+  graphKey: string,
   token: string,
   job: IngestJob,
 ) {
-  const fullName = `${owner}/${repo}`
-  const gh = new GitHubClient(token)
+  const [owner, repo] = splitFullName(fullName)
+  const gh = createGitClient(provider, token)
 
   const repoInfo = await gh.getRepo(owner, repo)
   const branches = await gh.getBranches(owner, repo)
@@ -125,8 +127,8 @@ async function runIngest(
     Array.from({ length: config.ingest.concurrency }, () => worker()),
   )
 
-  await graph.upsertRepo(fullName, repoInfo.defaultBranch, headSha)
-  await graph.writeFileGraph(fullName, ingested)
+  await graph.upsertRepo(graphKey, repoInfo.defaultBranch, headSha)
+  await graph.writeFileGraph(graphKey, ingested)
 
   job.state = 'done'
   job.finishedAt = new Date().toISOString()
@@ -135,14 +137,15 @@ async function runIngest(
 /** Re-parse the given files at a ref and refresh their structure edges. */
 export async function refreshFiles(
   graph: Graph,
-  owner: string,
-  repo: string,
+  provider: GitProvider,
+  fullName: string,
+  graphKey: string,
   token: string,
   paths: string[],
   ref: string,
 ) {
-  const fullName = `${owner}/${repo}`
-  const gh = new GitHubClient(token)
+  const [owner, repo] = splitFullName(fullName)
+  const gh = createGitClient(provider, token)
   const sourcePaths = paths.filter((p) => detectLanguage(p) !== null && !IGNORED_PATHS.test(p))
   if (sourcePaths.length === 0) return
 
@@ -174,5 +177,5 @@ export async function refreshFiles(
       symbols: parsed.symbols,
     })
   }
-  if (ingested.length > 0) await graph.writeFileGraph(fullName, ingested)
+  if (ingested.length > 0) await graph.writeFileGraph(graphKey, ingested)
 }

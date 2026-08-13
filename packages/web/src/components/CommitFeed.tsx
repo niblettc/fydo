@@ -6,7 +6,7 @@ import { commitView, findingMatchesFilters, viewKey } from '../findings'
 import { FindingCard } from './FindingCard'
 import type { TriageFn } from './FindingCard'
 import { ImpactMap } from './ImpactMap'
-import type { AnalysisReport, AnalyzedCommit, CommitStatus, FileScan } from '@fydo/core'
+import type { AnalysisReport, AnalyzedCommit, CommitStatus, FileScan, RepoInfo } from '@fydo/core'
 
 const STATUS_LABEL: Record<CommitStatus, string> = {
   clean: 'Clean',
@@ -182,11 +182,13 @@ function AiSummarySection({ commit, ai }: { commit: AnalyzedCommit; ai: AiReview
 }
 
 function EvidencePanel({
+  repo,
   commit,
   view,
   ai,
   onTriage,
 }: {
+  repo: RepoInfo
   commit: AnalyzedCommit
   view: CommitView
   ai: AiReviewsState
@@ -198,8 +200,6 @@ function EvidencePanel({
   const scannedFiles = report.fileScans.filter((f) => f.scanned).length
   const active = view.findings.filter((f) => f.status === 'open' || f.status === 'needs-review')
   const inactive = view.findings.filter((f) => f.status === 'dismissed' || f.status === 'resolved')
-  // Commit URLs look like https://github.com/{owner}/{repo}/commit/{sha}
-  const [ownerName, repoName] = new URL(commit.url).pathname.split('/').slice(1, 3)
   const changedPaths = report.fileScans.map((f) => f.filename).slice(0, 50)
 
   return (
@@ -226,7 +226,7 @@ function EvidencePanel({
         <span className="muted">Analyzed {new Date(report.analyzedAt).toLocaleString()}.</span>
       </p>
 
-      <ImpactMap owner={ownerName} repo={repoName} sha={commit.sha} paths={changedPaths} />
+      <ImpactMap repo={repo} sha={commit.sha} paths={changedPaths} />
 
       <AiSummarySection commit={commit} ai={ai} />
 
@@ -274,11 +274,13 @@ function EvidencePanel({
 }
 
 function CommitCard({
+  repo,
   commit,
   view,
   ai,
   onTriage,
 }: {
+  repo: RepoInfo
   commit: AnalyzedCommit
   view: CommitView
   ai: AiReviewsState
@@ -325,13 +327,13 @@ function CommitCard({
         </div>
       </button>
       {commit.status === 'error' && <div className="commit-error">{commit.error}</div>}
-      {open && <EvidencePanel commit={commit} view={view} ai={ai} onTriage={onTriage} />}
+      {open && <EvidencePanel repo={repo} commit={commit} view={view} ai={ai} onTriage={onTriage} />}
       <a
         className="commit-link"
         href={commit.url}
         target="_blank"
         rel="noreferrer"
-        title="View on GitHub"
+        title={repo.provider === 'gitlab' ? 'View on GitLab' : 'View on GitHub'}
       >
         ↗
       </a>
@@ -359,6 +361,7 @@ function filterLabel(filter: CommitFilter): string {
 }
 
 interface Props {
+  repo: RepoInfo
   commits: AnalyzedCommit[]
   hasBranches: boolean
   ai: AiReviewsState
@@ -372,6 +375,7 @@ interface Props {
 }
 
 export function CommitFeed({
+  repo,
   commits,
   hasBranches,
   ai,
@@ -425,6 +429,7 @@ export function CommitFeed({
         {visible.map((c) => (
           <CommitCard
             key={viewKey(c)}
+            repo={repo}
             commit={c}
             view={views.get(viewKey(c)) ?? commitView(c, ai.reviews[c.sha], {})}
             ai={ai}

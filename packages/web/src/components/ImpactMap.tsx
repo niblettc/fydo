@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { Background, Controls, Handle, MarkerType, Position, ReactFlow } from '@xyflow/react'
 import type { Edge, Node, NodeProps } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
+import { blobUrl } from '@fydo/core'
+import type { RepoInfo } from '@fydo/core'
 import { fetchImpactGraph } from '../backend'
 import type { ImpactGraph, ImpactGraphNode } from '../backend'
 
 interface Props {
-  owner: string
-  repo: string
-  /** Commit sha, used to pin GitHub links to this commit's file versions */
+  repo: RepoInfo
+  /** Commit sha, used to pin code links to this commit's file versions */
   sha: string
   /** Repo-relative paths the commit changed */
   paths: string[]
@@ -26,7 +27,7 @@ function FileNodeView({ data }: NodeProps<FileNode>) {
       className={`impact-node ${file.changed ? 'impact-node-changed' : ''} ${
         file.severity ? `impact-node-sev-${file.severity}` : ''
       }`}
-      title={`${file.path} — click to view on GitHub`}
+      title={`${file.path} — click to view the file`}
     >
       <Handle type="target" position={Position.Left} className="impact-handle" />
       <div className="impact-node-name">{base}</div>
@@ -91,7 +92,7 @@ function buildFlow(graph: ImpactGraph): { nodes: FileNode[]; edges: Edge[] } {
   return { nodes, edges }
 }
 
-export function ImpactMap({ owner, repo, sha, paths }: Props) {
+export function ImpactMap({ repo, sha, paths }: Props) {
   const [open, setOpen] = useState(false)
   const [graph, setGraph] = useState<ImpactGraph | null>(null)
   const [loading, setLoading] = useState(false)
@@ -101,11 +102,11 @@ export function ImpactMap({ owner, repo, sha, paths }: Props) {
   useEffect(() => {
     if (!open || graph || loading || error) return
     setLoading(true)
-    fetchImpactGraph(owner, repo, paths)
+    fetchImpactGraph(repo.provider, repo.fullName, paths)
       .then(setGraph)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false))
-  }, [open, graph, loading, error, owner, repo, paths])
+  }, [open, graph, loading, error, repo, paths])
 
   const flow = useMemo(() => (graph ? buildFlow(graph) : null), [graph])
 
@@ -165,7 +166,7 @@ export function ImpactMap({ owner, repo, sha, paths }: Props) {
             colorMode="dark"
             onNodeClick={(_, node) =>
               window.open(
-                `https://github.com/${owner}/${repo}/blob/${sha}/${node.id}`,
+                blobUrl(repo.provider, repo.htmlUrl, sha, node.id),
                 '_blank',
                 'noreferrer',
               )

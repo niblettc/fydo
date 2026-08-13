@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { analyzeCommit, statusForFindings } from '@fydo/core'
-import type { AiReview, AnalyzedCommit, GitHubClient, RepoInfo } from '@fydo/core'
+import type { AiReview, AnalyzedCommit, GitClient, RepoInfo } from '@fydo/core'
 import {
   fetchGraphStatus,
   recordCommitToGraph,
@@ -73,7 +73,7 @@ function friendlyGraphError(e: unknown): Error {
  * AI reviews, and persistence to Supabase. Retry resumes at the failed stage,
  * keeping the work of completed stages. */
 export function usePreparation(
-  client: GitHubClient,
+  client: GitClient,
   repo: RepoInfo,
   selectedBranches: string[],
   framework: string,
@@ -96,7 +96,7 @@ export function usePreparation(
   const runGraphStage = useCallback(async () => {
     let graphStatus
     try {
-      graphStatus = await fetchGraphStatus(repo.owner, repo.repo)
+      graphStatus = await fetchGraphStatus(repo.provider, repo.fullName)
     } catch (e) {
       throw friendlyGraphError(e)
     }
@@ -108,7 +108,7 @@ export function usePreparation(
 
     if (!alreadyIngested && graphStatus.job?.state !== 'running') {
       try {
-        await startGraphIngest(repo.owner, repo.repo, client.getToken())
+        await startGraphIngest(repo.provider, repo.fullName, client.getToken())
       } catch (e) {
         throw friendlyGraphError(e)
       }
@@ -116,7 +116,7 @@ export function usePreparation(
 
     while (true) {
       try {
-        graphStatus = await fetchGraphStatus(repo.owner, repo.repo)
+        graphStatus = await fetchGraphStatus(repo.provider, repo.fullName)
       } catch (e) {
         throw friendlyGraphError(e)
       }
@@ -181,7 +181,7 @@ export function usePreparation(
         analyzedRef.current.set(key, analyzed)
 
         // Feed the graph; best-effort since the ingest already succeeded.
-        void recordCommitToGraph(repo.owner, repo.repo, client.getToken(), {
+        void recordCommitToGraph(repo.provider, repo.fullName, client.getToken(), {
           sha: analyzed.sha,
           branch,
           message: analyzed.message,
@@ -224,7 +224,7 @@ export function usePreparation(
     if (!accessToken) throw new Error('Not signed in.')
 
     for (const commit of pending) {
-      const { review } = await requestAiReview(repo.owner, repo.repo, accessToken, {
+      const { review } = await requestAiReview(repo.provider, repo.fullName, accessToken, {
         commit: { message: commit.message, branch: commit.branch },
         report: commit.report!,
       })
@@ -237,6 +237,7 @@ export function usePreparation(
   const runSaveStage = useCallback(async () => {
     const commits = [...analyzedRef.current.values()]
     const row = await upsertRepo({
+      provider: repo.provider,
       fullName: repo.fullName,
       defaultBranch: repo.defaultBranch,
       selectedBranches,

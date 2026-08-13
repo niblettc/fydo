@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
-import { GitHubClient, GitHubError } from '@fydo/core'
-import type { AnalyzedCommit, BranchInfo, RateLimitInfo, RepoInfo, UnifiedFinding } from '@fydo/core'
+import { GitHubClient, GitHubError, GitLabClient, splitFullName } from '@fydo/core'
+import type {
+  AnalyzedCommit,
+  BranchInfo,
+  GitProvider,
+  RateLimitInfo,
+  RepoInfo,
+  UnifiedFinding,
+} from '@fydo/core'
 import { commitView, findingFeedItems, viewKey } from './findings'
 import type { CommitView, SeverityFilter, StatusFilter } from './findings'
 import { FindingsFeed } from './components/FindingsFeed'
@@ -75,6 +82,18 @@ export default function App() {
     return gh
   }, [auth.githubToken])
 
+  /** Unauthenticated client for public GitLab projects; no OAuth needed. */
+  const gitlabClient = useMemo(() => new GitLabClient(), [])
+
+  /** Client matching a project's git host */
+  const clientFor = useCallback(
+    (provider: GitProvider) => (provider === 'gitlab' ? gitlabClient : client),
+    [client, gitlabClient],
+  )
+
+  /** Client for whichever repo is currently open (dashboard + monitor) */
+  const activeClient = repo ? clientFor(repo.provider) : client
+
   useEffect(() => {
     if (!auth.session) {
       setSavedRepos([])
@@ -113,7 +132,7 @@ export default function App() {
   }, [])
 
   const monitor = useMonitor(
-    client,
+    activeClient,
     repo,
     selectedBranches,
     pollInterval,
@@ -128,13 +147,14 @@ export default function App() {
    * analyses and reviews, and land on its dashboard. */
   const openProject = useCallback(
     async (row: RepoRow) => {
-      if (!client) return
-      const [owner, repoName] = row.fullName.split('/')
+      const gc = clientFor(row.provider)
+      if (!gc) return
+      const [owner, repoName] = splitFullName(row.fullName)
       setSwitching(true)
       setConnectError(null)
       try {
-        const info = await client.getRepo(owner, repoName)
-        const branchList = await client.getBranches(owner, repoName)
+        const info = await gc.getRepo(owner, repoName)
+        const branchList = await gc.getBranches(owner, repoName)
         const [commits, reviews] = await Promise.all([
           loadCommitAnalyses(row.id),
           loadAiReviews(row.id),
@@ -159,7 +179,7 @@ export default function App() {
         localStorage.setItem(LAST_PROJECT_KEY, row.id)
         setStep('dashboard')
       } catch (e) {
-        if (e instanceof GitHubError && e.status === 401) {
+        if (row.provider === 'github' && e instanceof GitHubError && e.status === 401) {
           setTokenExpired(true)
           return
         }
@@ -168,16 +188,17 @@ export default function App() {
         setSwitching(false)
       }
     },
-    [client, ai],
+    [clientFor, ai],
   )
 
   /** Wizard repo pick: open the project if it's already onboarded, otherwise
    * continue to the framework step. */
   const selectRepo = useCallback(
-    async (owner: string, repoName: string) => {
-      if (!client) return
+    async (provider: GitProvider, fullName: string) => {
+      const gc = clientFor(provider)
+      if (!gc) return
       const existing = savedRepos.find(
-        (r) => r.fullName === `${owner}/${repoName}` && r.onboardedAt !== null,
+        (r) => r.provider === provider && r.fullName === fullName && r.onboardedAt !== null,
       )
       if (existing) {
         setConnecting(true)
@@ -188,8 +209,9 @@ export default function App() {
       setConnecting(true)
       setConnectError(null)
       try {
-        const info = await client.getRepo(owner, repoName)
-        const branchList = await client.getBranches(owner, repoName)
+        const [owner, repoName] = splitFullName(fullName)
+        const info = await gc.getRepo(owner, repoName)
+        const branchList = await gc.getBranches(owner, repoName)
         setRepo(info)
         setBranches(branchList)
         setRepoRow(null)
@@ -198,7 +220,7 @@ export default function App() {
         setSelectedBranches([info.defaultBranch])
         setStep('framework')
       } catch (e) {
-        if (e instanceof GitHubError && e.status === 401) {
+        if (provider === 'github' && e instanceof GitHubError && e.status === 401) {
           setTokenExpired(true)
           return
         }
@@ -207,7 +229,7 @@ export default function App() {
         setConnecting(false)
       }
     },
-    [client, savedRepos, openProject],
+    [clientFor, savedRepos, openProject],
   )
 
   /** First load with existing projects: skip the wizard and open the last
@@ -277,7 +299,7 @@ export default function App() {
   const deleteProject = useCallback(
     async (row: RepoRow) => {
       const confirmed = window.confirm(
-        `Delete project ${row.fullName}?\n\nThis permanently removes its saved commit analyses, AI reviews, and triage decisions from your account. The GitHub repository itself is not touched.`,
+        `Delete project ${row.fullName}?\n\nThis permanently removes its saved commit analyses, AI reviews, and triage decisions from your account. The repository itself is not touched.`,
       )
       if (!confirmed) return
       try {
@@ -437,7 +459,7 @@ export default function App() {
           savedRepos={savedRepos}
           connecting={connecting}
           error={connectError}
-          onSelect={(owner, repoName) => void selectRepo(owner, repoName)}
+          onSelect={(provider, fullName) => void selectRepo(provider, fullName)}
           onAuthError={handleAuthError}
         />
       </WizardShell>
@@ -487,7 +509,7 @@ export default function App() {
         subtitle={`Building the dependency graph and analyzing recent commits on ${repo.fullName}.`}
       >
         <PreparationScreen
-          client={client}
+          client={clientFor(repo.provider) ?? client}
           repo={repo}
           selectedBranches={selectedBranches}
           framework={FRAMEWORK_OWASP}
@@ -518,7 +540,7 @@ export default function App() {
           savedRepos={savedRepos}
           connecting={connecting}
           error={connectError}
-          onSelect={(owner, repoName) => void selectRepo(owner, repoName)}
+          onSelect={(provider, fullName) => void selectRepo(provider, fullName)}
           onAuthError={handleAuthError}
         />
       </WizardShell>
@@ -650,7 +672,11 @@ export default function App() {
             defaultBranch={repo.defaultBranch}
             onChange={changeBranches}
           />
-          <GraphPanel owner={repo.owner} repo={repo.repo} token={client.getToken()} />
+          <GraphPanel
+            provider={repo.provider}
+            fullName={repo.fullName}
+            token={activeClient?.getToken() ?? ''}
+          />
           <BaselinePanel openFindings={openFindings} />
         </aside>
         <div className="feed-column">
@@ -686,6 +712,7 @@ export default function App() {
             />
           ) : (
             <CommitFeed
+              repo={repo}
               commits={monitor.commits}
               hasBranches={selectedBranches.length > 0}
               ai={ai}

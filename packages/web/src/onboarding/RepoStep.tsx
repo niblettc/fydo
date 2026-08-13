@@ -1,18 +1,36 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { GitHubError } from '@fydo/core'
-import type { GitHubClient, RepoListItem } from '@fydo/core'
+import type { GitHubClient, GitProvider, RepoListItem } from '@fydo/core'
 import type { RepoRow } from '../db'
 
 interface Props {
+  /** GitHub client for listing the signed-in user's repos */
   client: GitHubClient
   /** Repos this account has already onboarded (from Supabase) */
   savedRepos: RepoRow[]
   connecting: boolean
   error: string | null
-  onSelect: (owner: string, repo: string) => void
+  onSelect: (provider: GitProvider, fullName: string) => void
   /** GitHub rejected the provider token; the app should prompt a re-sign-in */
   onAuthError: () => void
+}
+
+/** Accepts "owner/repo", GitHub URLs, and public GitLab URLs (which may have
+ * nested namespaces like group/subgroup/project). */
+function parseManualInput(input: string): { provider: GitProvider; fullName: string } | null {
+  const cleaned = input.trim().replace(/\/+$/, '').replace(/\.git$/, '')
+  const gitlab = cleaned.match(/^https?:\/\/gitlab\.com\/(.+)$/)
+  if (gitlab) {
+    // Strip in-project paths like /-/tree/main that come along when copying URLs
+    const path = gitlab[1].split('/-/')[0].replace(/\/+$/, '')
+    return path.includes('/') ? { provider: 'gitlab', fullName: path } : null
+  }
+  const path = cleaned.replace(/^https?:\/\/github\.com\//, '')
+  const parts = path.split('/')
+  return parts.length === 2 && parts[0] && parts[1]
+    ? { provider: 'github', fullName: path }
+    : null
 }
 
 function pushedAgo(iso: string): string {
@@ -29,6 +47,7 @@ export function RepoStep({ client, savedRepos, connecting, error, onSelect, onAu
   const [loadError, setLoadError] = useState<string | null>(null)
   const [repoFilter, setRepoFilter] = useState('')
   const [manualInput, setManualInput] = useState('')
+  const [manualError, setManualError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -62,19 +81,17 @@ export function RepoStep({ client, savedRepos, connecting, error, onSelect, onAu
     return q ? repos.filter((r) => r.fullName.toLowerCase().includes(q)) : repos
   }, [repos, repoFilter])
 
-  function selectFullName(fullName: string) {
-    const [owner, repo] = fullName.split('/')
-    if (owner && repo) onSelect(owner, repo)
-  }
-
   function handleManualSubmit(e: FormEvent) {
     e.preventDefault()
-    const cleaned = manualInput
-      .trim()
-      .replace(/^https?:\/\/github\.com\//, '')
-      .replace(/\.git$/, '')
-      .replace(/\/$/, '')
-    selectFullName(cleaned)
+    const parsed = parseManualInput(manualInput)
+    if (!parsed) {
+      setManualError(
+        'Enter a GitHub repo as owner/repo (or its URL), or a public GitLab project URL.',
+      )
+      return
+    }
+    setManualError(null)
+    onSelect(parsed.provider, parsed.fullName)
   }
 
   return (
@@ -88,10 +105,11 @@ export function RepoStep({ client, savedRepos, connecting, error, onSelect, onAu
                 <button
                   type="button"
                   className="repo-row"
-                  onClick={() => selectFullName(r.fullName)}
+                  onClick={() => onSelect(r.provider, r.fullName)}
                   disabled={connecting}
                 >
                   <span className="repo-row-name mono">{r.fullName}</span>
+                  {r.provider === 'gitlab' && <span className="badge neutral small">gitlab</span>}
                   <span className="badge pass small">monitored</span>
                   <span className="muted small-text repo-row-pushed">
                     {r.selectedBranches.length} branch{r.selectedBranches.length === 1 ? '' : 'es'}
@@ -123,7 +141,7 @@ export function RepoStep({ client, savedRepos, connecting, error, onSelect, onAu
                   <button
                     type="button"
                     className="repo-row"
-                    onClick={() => onSelect(r.owner, r.repo)}
+                    onClick={() => onSelect('github', r.fullName)}
                     disabled={connecting}
                   >
                     <span className="repo-row-name mono">{r.fullName}</span>
@@ -147,11 +165,13 @@ export function RepoStep({ client, savedRepos, connecting, error, onSelect, onAu
           Or enter a repository manually
           <input
             type="text"
-            placeholder="owner/repo or https://github.com/owner/repo"
+            placeholder="owner/repo, https://github.com/… or https://gitlab.com/…"
             value={manualInput}
             onChange={(e) => setManualInput(e.target.value)}
           />
         </label>
+        <p className="hint">GitLab support covers public projects (no GitLab sign-in needed).</p>
+        {manualError && <div className="error-banner">{manualError}</div>}
         {error && <div className="error-banner">{error}</div>}
         <button type="submit" className="btn primary" disabled={connecting || !manualInput.trim()}>
           {connecting ? 'Connecting…' : 'Continue'}

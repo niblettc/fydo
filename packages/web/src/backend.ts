@@ -1,8 +1,14 @@
 /** Client for the @fydo/server backend (dependency graph + AI reviews). */
 
-import type { AiReview, AnalysisReport } from '@fydo/core'
+import type { AiReview, AnalysisReport, GitProvider } from '@fydo/core'
 
 const BASE_URL = (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? 'http://localhost:8787'
+
+/** Route prefix; the project path is one encoded segment because GitLab
+ * namespaces can be nested (group/subgroup/project). */
+function repoPath(provider: GitProvider, fullName: string): string {
+  return `/api/repos/${provider}/${encodeURIComponent(fullName)}`
+}
 
 export interface IngestJob {
   state: 'running' | 'done' | 'error'
@@ -86,44 +92,44 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export function fetchGraphStatus(owner: string, repo: string): Promise<GraphStatus> {
-  return api<GraphStatus>(`/api/repos/${owner}/${repo}/status`)
+export function fetchGraphStatus(provider: GitProvider, fullName: string): Promise<GraphStatus> {
+  return api<GraphStatus>(`${repoPath(provider, fullName)}/status`)
 }
 
 export function startGraphIngest(
-  owner: string,
-  repo: string,
+  provider: GitProvider,
+  fullName: string,
   token: string,
 ): Promise<{ job: IngestJob }> {
-  return api<{ job: IngestJob }>(`/api/repos/${owner}/${repo}/ingest`, {
+  return api<{ job: IngestJob }>(`${repoPath(provider, fullName)}/ingest`, {
     method: 'POST',
-    headers: token ? { 'X-GitHub-Token': token } : {},
+    headers: token ? { 'X-Git-Token': token } : {},
   })
 }
 
 export function recordCommitToGraph(
-  owner: string,
-  repo: string,
+  provider: GitProvider,
+  fullName: string,
   token: string,
   payload: CommitRecord,
 ): Promise<{ recorded: boolean }> {
-  return api<{ recorded: boolean }>(`/api/repos/${owner}/${repo}/commits`, {
+  return api<{ recorded: boolean }>(`${repoPath(provider, fullName)}/commits`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      ...(token ? { 'X-GitHub-Token': token } : {}),
+      ...(token ? { 'X-Git-Token': token } : {}),
     },
     body: JSON.stringify(payload),
   })
 }
 
 export function requestAiReview(
-  owner: string,
-  repo: string,
+  provider: GitProvider,
+  fullName: string,
   supabaseAccessToken: string,
   payload: { commit: { message: string; branch: string }; report: AnalysisReport },
 ): Promise<{ review: AiReview }> {
-  return api<{ review: AiReview }>(`/api/repos/${owner}/${repo}/reviews`, {
+  return api<{ review: AiReview }>(`${repoPath(provider, fullName)}/reviews`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -134,11 +140,11 @@ export function requestAiReview(
 }
 
 export function fetchImpact(
-  owner: string,
-  repo: string,
+  provider: GitProvider,
+  fullName: string,
   paths: string[],
 ): Promise<ImpactResponse> {
-  return api<ImpactResponse>(`/api/repos/${owner}/${repo}/impact`, {
+  return api<ImpactResponse>(`${repoPath(provider, fullName)}/impact`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ paths }),
@@ -146,11 +152,11 @@ export function fetchImpact(
 }
 
 export function fetchImpactGraph(
-  owner: string,
-  repo: string,
+  provider: GitProvider,
+  fullName: string,
   paths: string[],
 ): Promise<ImpactGraph> {
-  return api<ImpactGraph>(`/api/repos/${owner}/${repo}/impact-graph`, {
+  return api<ImpactGraph>(`${repoPath(provider, fullName)}/impact-graph`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ paths }),

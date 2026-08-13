@@ -32,6 +32,7 @@ export interface RepoListItem {
   pushedAt: string
 }
 
+/** Error from any git provider API; the name predates GitLab support. */
 export class GitHubError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -47,7 +48,27 @@ export interface TreeEntry {
   size?: number
 }
 
-export class GitHubClient {
+/** The provider-agnostic surface the app uses to talk to a git host.
+ * Return shapes follow GitHub's API; other providers adapt to them. */
+export interface GitClient {
+  onRateLimit?: (info: RateLimitInfo) => void
+  getToken(): string
+  getRepo(owner: string, repo: string): Promise<RepoInfo>
+  getBranches(owner: string, repo: string): Promise<BranchInfo[]>
+  getCommits(owner: string, repo: string, branch: string, perPage?: number): Promise<CommitListItem[]>
+  getCommit(owner: string, repo: string, sha: string): Promise<CommitDetail>
+  getTree(owner: string, repo: string, ref: string): Promise<{ entries: TreeEntry[]; truncated: boolean }>
+  getBlob(owner: string, repo: string, sha: string): Promise<string>
+}
+
+/** Splits a full path at the last slash, so nested GitLab namespaces
+ * (group/subgroup/project) survive the owner/repo calling convention. */
+export function splitFullName(fullName: string): [string, string] {
+  const i = fullName.lastIndexOf('/')
+  return [fullName.slice(0, i), fullName.slice(i + 1)]
+}
+
+export class GitHubClient implements GitClient {
   private token: string
   onRateLimit?: (info: RateLimitInfo) => void
 
@@ -139,6 +160,7 @@ export class GitHubClient {
       html_url: string
     }>(`/repos/${owner}/${repo}`)
     return {
+      provider: 'github',
       owner,
       repo,
       fullName: data.full_name,

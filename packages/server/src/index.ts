@@ -7,21 +7,48 @@ import { config } from './config'
 import { Graph } from './graph'
 import type { CommitPayload } from './graph'
 import { getJob, refreshFiles, startIngest } from './ingest'
-import type { AnalysisReport } from '@fydo/core'
+import type { AnalysisReport, GitProvider } from '@fydo/core'
 
 const app = Fastify({ logger: true })
 await app.register(cors, { origin: true })
 
 const graph = new Graph()
 
+/** Routes carry the provider and the URL-encoded project path (GitLab
+ * namespaces can be nested, so a single :owner/:repo pair is not enough). */
 interface RepoParams {
-  owner: string
-  repo: string
+  provider: string
+  project: string
 }
 
-function tokenFrom(headers: Record<string, unknown>): string {
-  const header = headers['x-github-token']
-  return typeof header === 'string' && header ? header : config.githubToken
+interface RepoRef {
+  provider: GitProvider
+  fullName: string
+  /** Neo4j key. GitHub keeps the bare path so pre-GitLab graphs stay valid. */
+  graphKey: string
+}
+
+function repoRef(params: RepoParams): RepoRef | null {
+  if (params.provider !== 'github' && params.provider !== 'gitlab') return null
+  // Fastify may hand the param through still percent-encoded depending on
+  // how the client encoded slashes; project paths never contain a literal %.
+  const fullName = params.project.includes('%')
+    ? decodeURIComponent(params.project)
+    : params.project
+  return {
+    provider: params.provider,
+    fullName,
+    graphKey: params.provider === 'github' ? fullName : `gitlab:${fullName}`,
+  }
+}
+
+function tokenFrom(headers: Record<string, unknown>, provider: GitProvider): string {
+  for (const name of ['x-git-token', 'x-github-token']) {
+    const header = headers[name]
+    if (typeof header === 'string' && header) return header
+  }
+  // Public GitLab projects work unauthenticated; only GitHub gets the fallback.
+  return provider === 'github' ? config.githubToken : ''
 }
 
 app.get('/api/health', async () => {
@@ -33,47 +60,54 @@ app.get('/api/health', async () => {
   }
 })
 
-app.post<{ Params: RepoParams }>('/api/repos/:owner/:repo/ingest', async (req) => {
-  const { owner, repo } = req.params
-  const job = startIngest(graph, owner, repo, tokenFrom(req.headers))
+app.post<{ Params: RepoParams }>('/api/repos/:provider/:project/ingest', async (req, reply) => {
+  const ref = repoRef(req.params)
+  if (!ref) return reply.code(400).send({ error: 'unknown provider' })
+  const job = startIngest(graph, ref.provider, ref.fullName, ref.graphKey, tokenFrom(req.headers, ref.provider))
   return { job }
 })
 
-app.get<{ Params: RepoParams }>('/api/repos/:owner/:repo/status', async (req) => {
-  const { owner, repo } = req.params
-  const fullName = `${owner}/${repo}`
+app.get<{ Params: RepoParams }>('/api/repos/:provider/:project/status', async (req, reply) => {
+  const ref = repoRef(req.params)
+  if (!ref) return reply.code(400).send({ error: 'unknown provider' })
   const [meta, stats] = await Promise.all([
-    graph.getRepoMeta(fullName),
-    graph.stats(fullName),
+    graph.getRepoMeta(ref.graphKey),
+    graph.stats(ref.graphKey),
   ])
-  return { job: getJob(fullName), ingestedSha: meta?.ingestedSha ?? null, stats }
+  return { job: getJob(ref.graphKey), ingestedSha: meta?.ingestedSha ?? null, stats }
 })
 
 app.post<{ Params: RepoParams; Body: CommitPayload }>(
-  '/api/repos/:owner/:repo/commits',
-  async (req) => {
-    const { owner, repo } = req.params
-    const fullName = `${owner}/${repo}`
+  '/api/repos/:provider/:project/commits',
+  async (req, reply) => {
+    const ref = repoRef(req.params)
+    if (!ref) return reply.code(400).send({ error: 'unknown provider' })
     const payload = req.body
-    await graph.recordCommit(fullName, payload)
+    await graph.recordCommit(ref.graphKey, payload)
 
     // Refresh dependency edges for the changed source files in the background;
     // failures here must not fail the recording itself.
     const changedPaths = payload.files
       .filter((f) => f.status !== 'removed')
       .map((f) => f.path)
-    void refreshFiles(graph, owner, repo, tokenFrom(req.headers), changedPaths, payload.sha).catch(
-      (e: unknown) => {
-        app.log.warn(`import refresh failed for ${fullName}@${payload.sha}: ${String(e)}`)
-      },
-    )
+    void refreshFiles(
+      graph,
+      ref.provider,
+      ref.fullName,
+      ref.graphKey,
+      tokenFrom(req.headers, ref.provider),
+      changedPaths,
+      payload.sha,
+    ).catch((e: unknown) => {
+      app.log.warn(`import refresh failed for ${ref.graphKey}@${payload.sha}: ${String(e)}`)
+    })
 
     return { recorded: true }
   },
 )
 
 app.post<{ Params: RepoParams; Body: { commit: ReviewCommitInput; report: AnalysisReport } }>(
-  '/api/repos/:owner/:repo/reviews',
+  '/api/repos/:provider/:project/reviews',
   async (req, reply) => {
     if (!supabaseConfigured()) {
       return reply.code(503).send({ error: 'Server is missing SUPABASE_URL / SUPABASE_ANON_KEY.' })
@@ -91,8 +125,8 @@ app.post<{ Params: RepoParams; Body: { commit: ReviewCommitInput; report: Analys
       return reply.code(400).send({ error: 'body must include "commit" and "report"' })
     }
 
-    const { owner, repo } = req.params
-    const fullName = `${owner}/${repo}`
+    const ref = repoRef(req.params)
+    if (!ref) return reply.code(400).send({ error: 'unknown provider' })
 
     // Graph impact context is best-effort: the review proceeds without it if
     // Neo4j is down or the repo has no ingested graph yet.
@@ -100,10 +134,10 @@ app.post<{ Params: RepoParams; Body: { commit: ReviewCommitInput; report: Analys
     const changedPaths = report.fileScans.map((f) => f.filename).slice(0, 50)
     if (changedPaths.length > 0) {
       try {
-        const impact = await graph.impact(fullName, changedPaths)
+        const impact = await graph.impact(ref.graphKey, changedPaths)
         impactContext = impact.promptContext || undefined
       } catch (e) {
-        app.log.warn(`impact context unavailable for ${fullName}: ${String(e)}`)
+        app.log.warn(`impact context unavailable for ${ref.graphKey}: ${String(e)}`)
       }
     }
 
@@ -113,26 +147,28 @@ app.post<{ Params: RepoParams; Body: { commit: ReviewCommitInput; report: Analys
 )
 
 app.post<{ Params: RepoParams; Body: { paths: string[] } }>(
-  '/api/repos/:owner/:repo/impact',
+  '/api/repos/:provider/:project/impact',
   async (req, reply) => {
-    const { owner, repo } = req.params
+    const ref = repoRef(req.params)
+    if (!ref) return reply.code(400).send({ error: 'unknown provider' })
     const paths = req.body?.paths
     if (!Array.isArray(paths) || paths.length === 0) {
       return reply.code(400).send({ error: 'body must include a non-empty "paths" array' })
     }
-    return graph.impact(`${owner}/${repo}`, paths.slice(0, 50))
+    return graph.impact(ref.graphKey, paths.slice(0, 50))
   },
 )
 
 app.post<{ Params: RepoParams; Body: { paths: string[] } }>(
-  '/api/repos/:owner/:repo/impact-graph',
+  '/api/repos/:provider/:project/impact-graph',
   async (req, reply) => {
-    const { owner, repo } = req.params
+    const ref = repoRef(req.params)
+    if (!ref) return reply.code(400).send({ error: 'unknown provider' })
     const paths = req.body?.paths
     if (!Array.isArray(paths) || paths.length === 0) {
       return reply.code(400).send({ error: 'body must include a non-empty "paths" array' })
     }
-    return graph.impactSubgraph(`${owner}/${repo}`, paths.slice(0, 50))
+    return graph.impactSubgraph(ref.graphKey, paths.slice(0, 50))
   },
 )
 

@@ -10,12 +10,14 @@ import type {
   CommitStatus,
   Finding,
   FindingOverride,
+  GitProvider,
 } from '@fydo/core'
 
 export const FRAMEWORK_OWASP = 'owasp-top-10-2021'
 
 export interface RepoRow {
   id: string
+  provider: GitProvider
   fullName: string
   defaultBranch: string
   selectedBranches: string[]
@@ -26,6 +28,7 @@ export interface RepoRow {
 
 interface RepoRecord {
   id: string
+  provider: string
   full_name: string
   default_branch: string
   selected_branches: string[]
@@ -37,6 +40,7 @@ interface RepoRecord {
 function mapRepo(r: RepoRecord): RepoRow {
   return {
     id: r.id,
+    provider: r.provider === 'gitlab' ? 'gitlab' : 'github',
     fullName: r.full_name,
     defaultBranch: r.default_branch,
     selectedBranches: r.selected_branches,
@@ -46,16 +50,20 @@ function mapRepo(r: RepoRecord): RepoRow {
   }
 }
 
+const REPO_COLUMNS =
+  'id, provider, full_name, default_branch, selected_branches, framework, graph_ingested_sha, onboarded_at'
+
 export async function fetchMyRepos(): Promise<RepoRow[]> {
   const { data, error } = await supabase
     .from('repos')
-    .select('id, full_name, default_branch, selected_branches, framework, graph_ingested_sha, onboarded_at')
+    .select(REPO_COLUMNS)
     .order('created_at', { ascending: false })
   if (error) throw new Error(error.message)
   return (data as RepoRecord[]).map(mapRepo)
 }
 
 export async function upsertRepo(opts: {
+  provider: GitProvider
   fullName: string
   defaultBranch: string
   selectedBranches: string[]
@@ -71,6 +79,7 @@ export async function upsertRepo(opts: {
     .upsert(
       {
         user_id: userData.user.id,
+        provider: opts.provider,
         full_name: opts.fullName,
         default_branch: opts.defaultBranch,
         selected_branches: opts.selectedBranches,
@@ -78,9 +87,9 @@ export async function upsertRepo(opts: {
         graph_ingested_sha: opts.graphIngestedSha,
         ...(opts.onboarded ? { onboarded_at: new Date().toISOString() } : {}),
       },
-      { onConflict: 'user_id,full_name' },
+      { onConflict: 'user_id,provider,full_name' },
     )
-    .select('id, full_name, default_branch, selected_branches, framework, graph_ingested_sha, onboarded_at')
+    .select(REPO_COLUMNS)
     .single()
   if (error) throw new Error(error.message)
   return mapRepo(data as RepoRecord)

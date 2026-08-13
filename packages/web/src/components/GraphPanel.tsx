@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { GitProvider } from '@fydo/core'
 import { fetchGraphStatus, startGraphIngest } from '../backend'
 import type { GraphStatus } from '../backend'
 
 interface Props {
-  owner: string
-  repo: string
+  provider: GitProvider
+  fullName: string
   token: string
 }
 
-export function GraphPanel({ owner, repo, token }: Props) {
+export function GraphPanel({ provider, fullName, token }: Props) {
   const [status, setStatus] = useState<GraphStatus | null>(null)
   const [backendDown, setBackendDown] = useState(false)
   const [starting, setStarting] = useState(false)
@@ -16,7 +17,7 @@ export function GraphPanel({ owner, repo, token }: Props) {
 
   const refresh = useCallback(async () => {
     try {
-      const s = await fetchGraphStatus(owner, repo)
+      const s = await fetchGraphStatus(provider, fullName)
       setStatus(s)
       setBackendDown(false)
       return s
@@ -24,7 +25,7 @@ export function GraphPanel({ owner, repo, token }: Props) {
       setBackendDown(true)
       return null
     }
-  }, [owner, repo])
+  }, [provider, fullName])
 
   // Poll every 2s while an ingestion is running, otherwise fetch once
   useEffect(() => {
@@ -47,7 +48,7 @@ export function GraphPanel({ owner, repo, token }: Props) {
   async function build() {
     setStarting(true)
     try {
-      await startGraphIngest(owner, repo, token)
+      await startGraphIngest(provider, fullName, token)
       await refresh()
     } catch {
       setBackendDown(true)

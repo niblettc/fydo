@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react'
 import { STAGE_LABELS, STAGE_ORDER, usePreparation } from '../hooks/usePreparation'
 import type { PreparationResult, StageState } from '../hooks/usePreparation'
-import type { GitHubClient, RepoInfo } from '@fydo/core'
+import type { GitClient, RepoInfo } from '@fydo/core'
 
 interface Props {
-  client: GitHubClient
+  client: GitClient
   repo: RepoInfo
   selectedBranches: string[]
   framework: string

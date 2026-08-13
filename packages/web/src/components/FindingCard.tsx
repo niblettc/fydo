@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { categoryById } from '@fydo/core'
+import { blobUrlFromCommitUrl, categoryById } from '@fydo/core'
 import type {
   AnalyzedCommit,
   FindingOverride,
@@ -47,20 +47,8 @@ interface Props {
   onTriage: TriageFn
   /** Commit context, shown when the card lives outside its commit (findings feed) */
   context?: { commit: AnalyzedCommit; branches: string[] }
-  /** Commit HTML URL, used to link file:line to GitHub when no context is given */
+  /** Commit HTML URL, used to link file:line to the code host when no context is given */
   commitUrl?: string
-}
-
-/** GitHub blob link pinned to this commit's version of the file */
-function fileUrl(
-  commitUrl: string | undefined,
-  sha: string,
-  file: string,
-  line?: number,
-): string | undefined {
-  const repoUrl = commitUrl?.replace(/\/commit\/.*$/, '')
-  if (!repoUrl || repoUrl === commitUrl) return undefined
-  return `${repoUrl}/blob/${sha}/${file}${line != null ? `#L${line}` : ''}`
 }
 
 export function FindingCard({ finding, sha, onTriage, context, commitUrl }: Props) {
@@ -73,9 +61,11 @@ export function FindingCard({ finding, sha, onTriage, context, commitUrl }: Prop
   const location = finding.file
     ? `${finding.file}${finding.line != null ? `:${finding.line}` : ''}`
     : undefined
-  const codeUrl = finding.file
-    ? fileUrl(context?.commit.url ?? commitUrl, sha, finding.file, finding.line)
-    : undefined
+  const sourceUrl = context?.commit.url ?? commitUrl
+  const codeUrl =
+    finding.file && sourceUrl
+      ? blobUrlFromCommitUrl(sourceUrl, sha, finding.file, finding.line)
+      : undefined
 
   return (
     <div
@@ -132,7 +122,7 @@ export function FindingCard({ finding, sha, onTriage, context, commitUrl }: Prop
           <span className="finding-commit-msg">{context.commit.message}</span>
           <span className="badge neutral small">{context.branches.join(', ')}</span>
           <span>{new Date(context.commit.date).toLocaleDateString()}</span>
-          <a href={context.commit.url} target="_blank" rel="noreferrer" title="View on GitHub">
+          <a href={context.commit.url} target="_blank" rel="noreferrer" title="View commit">
             ↗
           </a>
         </div>

@@ -158,7 +158,12 @@ export interface AnalyzedCommit {
   error?: string
 }
 
+/** Git hosting provider a repo lives on */
+export type GitProvider = 'github' | 'gitlab'
+
 export interface RepoInfo {
+  provider: GitProvider
+  /** Namespace part of the path; may contain slashes on GitLab (group/subgroup) */
   owner: string
   repo: string
   fullName: string

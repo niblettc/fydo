@@ -50,7 +50,7 @@ export function useAiReviews(repo: RepoInfo | null, repoId: string | null): AiRe
           const accessToken = data.session?.access_token
           if (!accessToken) throw new Error('Not signed in.')
 
-          const { review } = await requestAiReview(repo.owner, repo.repo, accessToken, {
+          const { review } = await requestAiReview(repo.provider, repo.fullName, accessToken, {
             commit: { message: commit.message, branch: commit.branch },
             report: commit.report!,
           })
