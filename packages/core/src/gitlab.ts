@@ -3,7 +3,7 @@
  * A token is optional: public-project endpoints work unauthenticated. */
 
 import { GitHubClient, GitHubError } from './github'
-import type { CommitDetail, CommitListItem, GitClient, TreeEntry } from './github'
+import type { CommitDetail, CommitListItem, GitClient, RepoListItem, TreeEntry } from './github'
 import type { BranchInfo, GitProvider, RateLimitInfo, RepoInfo } from './types'
 
 const API = 'https://gitlab.com/api/v4'
@@ -112,6 +112,44 @@ export class GitLabClient implements GitClient {
   private async request<T>(path: string): Promise<T> {
     const res = await this.fetchRaw(path)
     return res.json() as Promise<T>
+  }
+
+  /** Validates the token; used before storing a pasted personal access token. */
+  async getUser(): Promise<{ login: string; avatarUrl: string }> {
+    const data = await this.request<{ username: string; avatar_url: string }>('/user')
+    return { login: data.username, avatarUrl: data.avatar_url }
+  }
+
+  /** Projects the token holder is a member of (private ones included),
+   * most recently active first. Requires a token with the read_api scope. */
+  async getUserProjects(): Promise<RepoListItem[]> {
+    const projects: RepoListItem[] = []
+    for (let page = 1; page <= 3; page++) {
+      const data = await this.request<
+        Array<{
+          path_with_namespace: string
+          path: string
+          namespace: { full_path: string }
+          visibility?: string
+          description: string | null
+          last_activity_at: string
+        }>
+      >(
+        `/projects?membership=true&archived=false&order_by=last_activity_at&sort=desc&per_page=100&page=${page}`,
+      )
+      projects.push(
+        ...data.map((p) => ({
+          fullName: p.path_with_namespace,
+          owner: p.namespace.full_path,
+          repo: p.path,
+          private: p.visibility !== undefined && p.visibility !== 'public',
+          description: p.description,
+          pushedAt: p.last_activity_at,
+        })),
+      )
+      if (data.length < 100) break
+    }
+    return projects
   }
 
   async getRepo(owner: string, repo: string): Promise<RepoInfo> {

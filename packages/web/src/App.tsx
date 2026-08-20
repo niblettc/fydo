@@ -100,8 +100,9 @@ export default function App() {
     return gh
   }, [auth.githubToken])
 
-  /** Unauthenticated client for public GitLab projects; no OAuth needed. */
-  const gitlabClient = useMemo(() => new GitLabClient(), [])
+  /** GitLab client. With a stored personal access token it covers the user's
+   * private projects; without one it still works for public projects. */
+  const gitlabClient = useMemo(() => new GitLabClient(auth.gitlabToken ?? ''), [auth.gitlabToken])
 
   /** Client matching a project's git host */
   const clientFor = useCallback(
@@ -253,12 +254,20 @@ export default function App() {
           setTokenExpired(true)
           return
         }
+        if (provider === 'gitlab' && e instanceof GitHubError && e.status === 401) {
+          // Expired/revoked PAT: drop it so the wizard shows the connect form.
+          auth.setGitlabToken(null)
+          setConnectError(
+            'GitLab rejected your token. Reconnect GitLab with a new personal access token.',
+          )
+          return
+        }
         setConnectError(e instanceof Error ? e.message : String(e))
       } finally {
         setConnecting(false)
       }
     },
-    [clientFor, savedRepos, openProject],
+    [clientFor, savedRepos, openProject, auth],
   )
 
   /** First load with existing projects: skip the wizard and open the last
@@ -520,6 +529,9 @@ export default function App() {
       >
         <RepoStep
           client={client}
+          gitlabClient={gitlabClient}
+          gitlabConnected={auth.gitlabToken !== null}
+          onGitlabToken={auth.setGitlabToken}
           savedRepos={savedRepos}
           connecting={connecting}
           error={connectError}
@@ -609,6 +621,9 @@ export default function App() {
       <WizardShell step={1} title="Choose a repository" onSignOut={signOut}>
         <RepoStep
           client={client}
+          gitlabClient={gitlabClient}
+          gitlabConnected={auth.gitlabToken !== null}
+          onGitlabToken={auth.setGitlabToken}
           savedRepos={savedRepos}
           connecting={connecting}
           error={connectError}
