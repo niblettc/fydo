@@ -491,6 +491,76 @@
   margin: 0 24px 16px;
 }
 
+/* ── Confirm modal ───────────────────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(11, 15, 23, 0.72);
+}
+
+.modal {
+  width: 100%;
+  max-width: 440px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+}
+
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.modal-body {
+  margin: 0 0 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.modal-actions .btn.primary {
+  padding: 8px 14px;
+}
+
+/* ── Analysis progress banner ────────────────────────────────────────────── */
+.analysis-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 24px 16px;
+  padding: 10px 14px;
+  background: rgba(79, 140, 255, 0.1);
+  border: 1px solid rgba(79, 140, 255, 0.35);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.analysis-banner .stage-icon.running {
+  width: 16px;
+  height: 16px;
+  margin-top: 0;
+}
+
+.analysis-banner-label {
+  font-weight: 600;
+}
+
+.analysis-banner-detail {
+  color: var(--text-muted);
+}
+
 .muted {
   color: var(--text-muted);
 }

@@ -15,6 +15,7 @@ import { FindingsFeed } from './components/FindingsFeed'
 import { BaselinePanel } from './components/BaselinePanel'
 import { BranchPicker } from './components/BranchPicker'
 import { CommitFeed } from './components/CommitFeed'
+import { ConfirmModal } from './components/ConfirmModal'
 import type { CommitFilter } from './components/CommitFeed'
 import { GraphPanel } from './components/GraphPanel'
 import { ProjectSwitcher } from './components/ProjectSwitcher'
@@ -49,6 +50,15 @@ const LAST_PROJECT_KEY = 'fydo_last_project'
 
 type Step = 'repo' | 'framework' | 'branches' | 'preparing' | 'summary' | 'dashboard'
 
+function rerunStatusText(analyzing: number, reviewing: number): string {
+  if (analyzing > 0 && reviewing > 0) {
+    return `Scanning ${analyzing} commit${analyzing === 1 ? '' : 's'} and AI-reviewing ${reviewing}`
+  }
+  if (analyzing > 0) return `Scanning ${analyzing} commit${analyzing === 1 ? '' : 's'}`
+  if (reviewing > 0) return `AI-reviewing ${reviewing} commit${reviewing === 1 ? '' : 's'}`
+  return 'Fetching latest commits'
+}
+
 export default function App() {
   const auth = useAuth()
 
@@ -69,6 +79,10 @@ export default function App() {
   const [tokenExpired, setTokenExpired] = useState(false)
   const [rateLimit, setRateLimit] = useState<RateLimitInfo | null>(null)
   const [pollInterval, setPollInterval] = useState(60)
+  /** Confirm dialog for a full re-analysis (scanner + AI, replaces stored results) */
+  const [rerunConfirmOpen, setRerunConfirmOpen] = useState(false)
+  /** True from confirm until the re-fetch, scan, and AI reviews all finish */
+  const [rerunning, setRerunning] = useState(false)
 
   /** null = auto: findings tab when anything is active, commits otherwise */
   const [tab, setTab] = useState<'findings' | 'commits' | null>(null)
@@ -158,6 +172,8 @@ export default function App() {
       const [owner, repoName] = splitFullName(row.fullName)
       setSwitching(true)
       setConnectError(null)
+      setRerunConfirmOpen(false)
+      setRerunning(false)
       try {
         const info = await gc.getRepo(owner, repoName)
         const branchList = await gc.getBranches(owner, repoName)
@@ -297,6 +313,8 @@ export default function App() {
     setSeed(null)
     setPrepResult(null)
     setConnectError(null)
+    setRerunConfirmOpen(false)
+    setRerunning(false)
     ai.hydrate({})
     setStep('repo')
     void fetchMyRepos()
@@ -351,13 +369,31 @@ export default function App() {
   /** Full re-analysis of the latest commits on the selected branches. Confirmed
    * because it also re-runs AI reviews, which cost tokens and replace existing
    * verdicts (manual triage decisions are keyed by finding and survive). */
-  const rerunAnalysis = useCallback(() => {
-    const confirmed = window.confirm(
-      `Re-run analysis for ${repo?.fullName ?? 'this project'}?\n\nThe latest commits on the selected branches are re-fetched, re-scanned, and re-reviewed by AI, replacing the stored results.`,
-    )
-    if (!confirmed) return
+  const confirmRerunAnalysis = useCallback(() => {
+    setRerunConfirmOpen(false)
+    setRerunning(true)
     monitor.rerun()
-  }, [repo?.fullName, monitor.rerun])
+  }, [monitor.rerun])
+
+  const analyzingCount = monitor.commits.filter((c) => c.status === 'analyzing').length
+  const reviewingCount = Object.keys(ai.running).length
+  /** True while any part of an analysis pass is outstanding: the fetch itself,
+   * commit scans, or AI reviews. Reviews are started synchronously while the
+   * poll is still marked busy, so this never reads false mid-pass. */
+  const analysisActive = monitor.polling || analyzingCount > 0 || reviewingCount > 0
+
+  /** The re-run flag lifts once all of its work has settled. `monitor.rerun()`
+   * flips `polling` on in the same batch as `setRerunning(true)`, so this
+   * can't fire before the pass starts. */
+  useEffect(() => {
+    if (rerunning && !analysisActive) setRerunning(false)
+  }, [rerunning, analysisActive])
+
+  const analysisBusy = rerunning || monitor.polling
+  /** Banner shows for any pass that has real work (scans/reviews), not just
+   * explicit re-runs, so background analysis is never invisible. */
+  const showAnalysisBanner = rerunning || analyzingCount > 0 || reviewingCount > 0
+  const analysisStatus = rerunStatusText(analyzingCount, reviewingCount)
 
   /** Unified view (scanner + AI + manual triage) per feed entry */
   const views = useMemo(() => {
@@ -601,11 +637,13 @@ export default function App() {
               )}
             </div>
             <div className="muted small-text">
-              {monitor.polling
-                ? 'Polling…'
-                : monitor.lastPolledAt
-                  ? `Last checked ${monitor.lastPolledAt.toLocaleTimeString()}`
-                  : 'Waiting for first poll'}
+              {rerunning
+                ? 'Re-running analysis…'
+                : monitor.polling
+                  ? 'Polling…'
+                  : monitor.lastPolledAt
+                    ? `Last checked ${monitor.lastPolledAt.toLocaleTimeString()}`
+                    : 'Waiting for first poll'}
               {' · '}every
               <select
                 className="inline-select"
@@ -630,16 +668,16 @@ export default function App() {
               API {rateLimit.remaining}/{rateLimit.limit}
             </span>
           )}
-          <button className="btn" onClick={monitor.refresh} disabled={monitor.polling}>
+          <button className="btn" onClick={monitor.refresh} disabled={analysisBusy}>
             Check now
           </button>
           <button
             className="btn"
-            onClick={rerunAnalysis}
-            disabled={monitor.polling}
+            onClick={() => setRerunConfirmOpen(true)}
+            disabled={analysisBusy}
             title="Re-fetch the latest commits and redo the scanner analysis and AI reviews"
           >
-            Re-run analysis
+            {rerunning ? 'Re-running…' : 'Re-run analysis'}
           </button>
           <button className="btn subtle" onClick={signOut}>
             Sign out
@@ -703,6 +741,17 @@ export default function App() {
 
       {connectError && <div className="error-banner wide">{connectError}</div>}
       {monitor.error && <div className="error-banner wide">{monitor.error}</div>}
+      {showAnalysisBanner && (
+        <div className="analysis-banner" role="status" aria-live="polite">
+          <span className="stage-icon running" aria-hidden="true" />
+          <span>
+            <span className="analysis-banner-label">
+              {rerunning ? 'Re-running analysis' : 'Analyzing new commits'}
+            </span>
+            <span className="analysis-banner-detail"> — {analysisStatus}</span>
+          </span>
+        </div>
+      )}
 
       <main className="layout">
         <aside className="sidebar">
@@ -766,6 +815,15 @@ export default function App() {
           )}
         </div>
       </main>
+      {rerunConfirmOpen && (
+        <ConfirmModal
+          title={`Re-run analysis for ${repo.fullName}?`}
+          body="The latest commits on the selected branches are re-fetched, re-scanned, and re-reviewed by AI. Stored results for this project are replaced. Manual triage decisions are kept."
+          confirmLabel="Re-run analysis"
+          onConfirm={confirmRerunAnalysis}
+          onCancel={() => setRerunConfirmOpen(false)}
+        />
+      )}
     </div>
   )
 }

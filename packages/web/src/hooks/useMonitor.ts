@@ -193,15 +193,16 @@ export function useMonitor(
     void poll(() => false)
   }, [poll])
 
-  /** Drops seen-commit tracking and the current feed, then does a fresh
-   * initial fetch. Each re-analyzed commit flows through onAnalyzed again,
-   * so persistence (upsert) and AI reviews also re-run. */
+  /** Drops seen-commit tracking and the current feed, then re-fetches at full
+   * poll depth so the whole window is re-analyzed in this one pass (nothing
+   * left over for later interval polls to silently pick up). Each re-analyzed
+   * commit flows through onAnalyzed again, so persistence (upsert) and AI
+   * reviews also re-run. */
   const rerun = useCallback(() => {
     seenRef.current = new Set()
-    initializedBranchesRef.current = new Set()
     setCommits([])
     setError(null)
-    void poll(() => true)
+    void poll(() => false)
   }, [poll])
 
   return { commits, lastPolledAt, polling, error, refresh, rerun }
