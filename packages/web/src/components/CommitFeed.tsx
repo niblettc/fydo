@@ -1,12 +1,19 @@
 import { useState } from 'react'
-import { OWASP_CATEGORIES } from '@fydo/core'
+import { frameworkById } from '@fydo/core'
 import type { AiReviewsState } from '../hooks/useAiReviews'
 import type { CommitView, SeverityFilter, StatusFilter } from '../findings'
 import { commitView, findingMatchesFilters, viewKey } from '../findings'
 import { FindingCard } from './FindingCard'
 import type { TriageFn } from './FindingCard'
 import { ImpactMap } from './ImpactMap'
-import type { AnalysisReport, AnalyzedCommit, CommitStatus, FileScan, RepoInfo } from '@fydo/core'
+import type {
+  AnalysisReport,
+  AnalyzedCommit,
+  CommitStatus,
+  ComplianceCategory,
+  FileScan,
+  RepoInfo,
+} from '@fydo/core'
 
 const STATUS_LABEL: Record<CommitStatus, string> = {
   clean: 'Clean',
@@ -44,12 +51,24 @@ function commitBadgeText(view: CommitView): string {
   return STATUS_LABEL[view.status]
 }
 
-function CategoryEvidence({ report }: { report: AnalysisReport }) {
+function CategoryEvidence({
+  report,
+  categories,
+}: {
+  report: AnalysisReport
+  categories: ComplianceCategory[]
+}) {
   const [openCategory, setOpenCategory] = useState<string | null>(null)
+
+  // Categories with no scanner rules at all (AI-only coverage) would render
+  // as a wall of permanent "not applicable" rows; show evaluated ones only.
+  const withRules = categories.filter((cat) =>
+    report.ruleResults.some((r) => r.owaspId === cat.id),
+  )
 
   return (
     <div className="evidence-categories">
-      {OWASP_CATEGORIES.map((cat) => {
+      {withRules.map((cat) => {
         const rules = report.ruleResults.filter((r) => r.owaspId === cat.id)
         const evaluated = rules.filter((r) => r.filesChecked > 0)
         const hits = rules.reduce((n, r) => n + r.hits, 0)
@@ -187,13 +206,16 @@ function EvidencePanel({
   view,
   ai,
   onTriage,
+  framework,
 }: {
   repo: RepoInfo
   commit: AnalyzedCommit
   view: CommitView
   ai: AiReviewsState
   onTriage: TriageFn
+  framework: string
 }) {
+  const fw = frameworkById(framework)
   const report = commit.report
   if (!report) return null
 
@@ -210,7 +232,7 @@ function EvidencePanel({
             <strong>Why this commit is clean:</strong> {report.totalLinesChecked} added line
             {report.totalLinesChecked === 1 ? '' : 's'} across {scannedFiles} file
             {scannedFiles === 1 ? '' : 's'} were evaluated against {report.totalRulesEvaluated}{' '}
-            applicable OWASP Top 10 rule{report.totalRulesEvaluated === 1 ? '' : 's'}
+            applicable {fw.shortName} rule{report.totalRulesEvaluated === 1 ? '' : 's'}
             {view.reviewed ? ' and AI-reviewed' : ''}, with no open findings.
           </>
         ) : (
@@ -264,8 +286,8 @@ function EvidencePanel({
         </>
       )}
 
-      <h3 className="evidence-heading">Rule evaluation by OWASP category</h3>
-      <CategoryEvidence report={report} />
+      <h3 className="evidence-heading">Rule evaluation by {fw.shortName} category</h3>
+      <CategoryEvidence report={report} categories={fw.categories} />
 
       <h3 className="evidence-heading">Files in this commit ({report.fileScans.length})</h3>
       <FileScanList scans={report.fileScans} />
@@ -279,12 +301,14 @@ function CommitCard({
   view,
   ai,
   onTriage,
+  framework,
 }: {
   repo: RepoInfo
   commit: AnalyzedCommit
   view: CommitView
   ai: AiReviewsState
   onTriage: TriageFn
+  framework: string
 }) {
   const [open, setOpen] = useState(false)
   const clickable = commit.report != null
@@ -327,7 +351,16 @@ function CommitCard({
         </div>
       </button>
       {commit.status === 'error' && <div className="commit-error">{commit.error}</div>}
-      {open && <EvidencePanel repo={repo} commit={commit} view={view} ai={ai} onTriage={onTriage} />}
+      {open && (
+        <EvidencePanel
+          repo={repo}
+          commit={commit}
+          view={view}
+          ai={ai}
+          onTriage={onTriage}
+          framework={framework}
+        />
+      )}
       <a
         className="commit-link"
         href={commit.url}
@@ -367,6 +400,8 @@ interface Props {
   ai: AiReviewsState
   views: Map<string, CommitView>
   onTriage: TriageFn
+  /** Compliance framework id the project is checked against */
+  framework: string
   /** Commit-level rollups (deduped by sha) for the feed header */
   summary: { analyzed: number; withFindings: number; needsReview: number }
   /** When set (via the stat cards), only commits containing a matching finding show */
@@ -381,6 +416,7 @@ export function CommitFeed({
   ai,
   views,
   onTriage,
+  framework,
   summary,
   filter,
   onClearFilter,
@@ -434,6 +470,7 @@ export function CommitFeed({
             view={views.get(viewKey(c)) ?? commitView(c, ai.reviews[c.sha], {})}
             ai={ai}
             onTriage={onTriage}
+            framework={framework}
           />
         ))}
       </ul>

@@ -133,7 +133,12 @@ export function requestAiReview(
   provider: GitProvider,
   fullName: string,
   supabaseAccessToken: string,
-  payload: { commit: { message: string; branch: string }; report: AnalysisReport },
+  payload: {
+    commit: { message: string; branch: string }
+    report: AnalysisReport
+    /** Compliance framework id; selects the review prompt (defaults to OWASP) */
+    framework?: string
+  },
 ): Promise<{ review: AiReview }> {
   return api<{ review: AiReview }>(`${repoPath(provider, fullName)}/reviews`, {
     method: 'POST',

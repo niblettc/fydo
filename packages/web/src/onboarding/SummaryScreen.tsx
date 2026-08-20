@@ -52,7 +52,7 @@ export function SummaryScreen({ repo, selectedBranches, result, onContinue }: Pr
         </div>
 
         <p className="hint">
-          {reviewCount} commit{reviewCount === 1 ? '' : 's'} received an AI security review during
+          {reviewCount} commit{reviewCount === 1 ? '' : 's'} received an AI compliance review during
           setup.
         </p>
 

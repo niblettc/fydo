@@ -1,6 +1,6 @@
-import type { ComplianceRule, OwaspCategory } from '../types'
+import type { ComplianceCategory, ComplianceRule } from '../types'
 
-export const OWASP_CATEGORIES: OwaspCategory[] = [
+export const OWASP_CATEGORIES: ComplianceCategory[] = [
   {
     id: 'A01',
     code: 'A01:2021',
@@ -387,11 +387,13 @@ export const OWASP_RULES: ComplianceRule[] = [
   },
 ]
 
-export function ruleAppliesToFile(rule: ComplianceRule, filename: string): boolean {
+export function ruleAppliesToFile(
+  rule: ComplianceRule,
+  filename: string,
+  /** Framework-wide file filter used when the rule has no filePattern (e.g. MISRA → C files) */
+  defaultFileFilter?: RegExp,
+): boolean {
   if (rule.filePattern) return rule.filePattern.test(filename)
+  if (defaultFileFilter) return defaultFileFilter.test(filename)
   return CODE_FILES.test(filename) || !/\./.test(filename.split('/').pop() ?? '')
-}
-
-export function categoryById(id: string): OwaspCategory | undefined {
-  return OWASP_CATEGORIES.find((c) => c.id === id)
 }

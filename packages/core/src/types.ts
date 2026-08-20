@@ -1,14 +1,21 @@
 export type Severity = 'critical' | 'high' | 'medium' | 'low'
 
-export interface OwaspCategory {
-  id: string // e.g. "A01"
-  code: string // e.g. "A01:2021"
+/** A rule grouping within a compliance framework: an OWASP Top 10 category
+ * (e.g. "A03 Injection") or a MISRA C section (e.g. "M21 Standard libraries"). */
+export interface ComplianceCategory {
+  id: string // e.g. "A01" or "M21"
+  code: string // e.g. "A01:2021" or "Sec 21"
   name: string
   description: string
 }
 
+/** @deprecated Historical name; categories are framework-neutral now. */
+export type OwaspCategory = ComplianceCategory
+
 export interface ComplianceRule {
   id: string
+  /** Category id within the rule's framework. Named for the original OWASP
+   * framework; kept as-is because it is persisted in Supabase and Neo4j. */
   owaspId: string
   title: string
   severity: Severity
@@ -20,8 +27,30 @@ export interface ComplianceRule {
   filePattern?: RegExp
 }
 
+/** A selectable compliance baseline: its rule set plus the scanning behavior
+ * that differs between baselines. The AI review prompt for each framework
+ * lives server-side (packages/server/src/ai.ts). */
+export interface ComplianceFramework {
+  /** Persisted id, e.g. "owasp-top-10-2021" */
+  id: string
+  /** Display name, e.g. "MISRA C:2012" */
+  name: string
+  /** Short label for inline UI copy, e.g. "OWASP Top 10" */
+  shortName: string
+  categories: ComplianceCategory[]
+  rules: ComplianceRule[]
+  /** Matches pure comment lines, which the scanner skips. Language-specific:
+   * '#' starts a comment in scripting languages but a preprocessor directive
+   * in C, where MISRA rules must see those lines. */
+  commentLinePattern: RegExp
+  /** Files that rules without their own filePattern apply to. Absent = the
+   * broad polyglot default (code extensions + extensionless scripts). */
+  fileFilter?: RegExp
+}
+
 export interface Finding {
   ruleId: string
+  /** Category id within the framework the commit was analyzed under */
   owaspId: string
   title: string
   severity: Severity

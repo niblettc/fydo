@@ -7,7 +7,8 @@ import type {
   RuleResult,
   Severity,
 } from '../types'
-import { OWASP_RULES, ruleAppliesToFile } from './owasp'
+import { ruleAppliesToFile } from './owasp'
+import { frameworkById } from './frameworks'
 
 interface AddedLine {
   lineNumber: number
@@ -34,11 +35,12 @@ export function parseAddedLines(patch: string): AddedLine[] {
   return added
 }
 
-export function analyzeCommit(detail: CommitDetail): AnalysisReport {
+export function analyzeCommit(detail: CommitDetail, framework?: string): AnalysisReport {
+  const fw = frameworkById(framework)
   const findings: Finding[] = []
   const fileScans: FileScan[] = []
   const ruleStats = new Map<string, { filesChecked: number; linesChecked: number; hits: number }>()
-  for (const rule of OWASP_RULES) {
+  for (const rule of fw.rules) {
     ruleStats.set(rule.id, { filesChecked: 0, linesChecked: 0, hits: 0 })
   }
 
@@ -67,7 +69,7 @@ export function analyzeCommit(detail: CommitDetail): AnalysisReport {
       })
       continue
     }
-    const rules = OWASP_RULES.filter((r) => ruleAppliesToFile(r, file.filename))
+    const rules = fw.rules.filter((r) => ruleAppliesToFile(r, file.filename, fw.fileFilter))
     const addedLines = parseAddedLines(file.patch)
     if (rules.length === 0) {
       fileScans.push({
@@ -87,8 +89,10 @@ export function analyzeCommit(detail: CommitDetail): AnalysisReport {
     let evaluatedLines = 0
     for (const { lineNumber, content } of addedLines) {
       const trimmed = content.trim()
-      // Skip pure comment lines to cut noise from docs and commented-out code
-      if (/^(?:\/\/|#|\*|\/\*|<!--)/.test(trimmed)) {
+      // Skip pure comment lines to cut noise from docs and commented-out
+      // code. Framework-specific: '#' is a comment in scripting languages
+      // but a preprocessor directive in C, which MISRA rules must see.
+      if (fw.commentLinePattern.test(trimmed)) {
         commentLinesSkipped++
         continue
       }
@@ -127,7 +131,7 @@ export function analyzeCommit(detail: CommitDetail): AnalysisReport {
     })
   }
 
-  const ruleResults: RuleResult[] = OWASP_RULES.map((rule) => {
+  const ruleResults: RuleResult[] = fw.rules.map((rule) => {
     const stats = ruleStats.get(rule.id)!
     return {
       ruleId: rule.id,

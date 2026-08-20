@@ -23,7 +23,7 @@ export const SOURCE_LABEL: Record<FindingSource, string> = {
 
 const SOURCE_TOOLTIP: Record<FindingSource, string> = {
   rules: 'Flagged by the regex rule scanner',
-  ai: 'Discovered by the AI security review',
+  ai: 'Discovered by the AI compliance review',
   both: 'Flagged by the rule scanner and confirmed by the AI review',
 }
 

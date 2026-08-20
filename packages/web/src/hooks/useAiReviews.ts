@@ -16,7 +16,12 @@ export interface AiReviewsState {
 
 /** AI reviews run through the backend (server-side Anthropic key) and are
  * persisted to Supabase per repo. */
-export function useAiReviews(repo: RepoInfo | null, repoId: string | null): AiReviewsState {
+export function useAiReviews(
+  repo: RepoInfo | null,
+  repoId: string | null,
+  /** Compliance framework id; selects the server-side review prompt */
+  framework: string,
+): AiReviewsState {
   const [reviews, setReviews] = useState<Record<string, AiReview>>({})
   const [running, setRunning] = useState<Record<string, boolean>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -53,6 +58,7 @@ export function useAiReviews(repo: RepoInfo | null, repoId: string | null): AiRe
           const { review } = await requestAiReview(repo.provider, repo.fullName, accessToken, {
             commit: { message: commit.message, branch: commit.branch },
             report: commit.report!,
+            framework,
           })
           setReviews((prev) => ({ ...prev, [sha]: review }))
 
@@ -76,7 +82,7 @@ export function useAiReviews(repo: RepoInfo | null, repoId: string | null): AiRe
         }
       })()
     },
-    [repo],
+    [repo, framework],
   )
 
   return { reviews, running, errors, run, hydrate }

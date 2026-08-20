@@ -35,6 +35,8 @@ export function useMonitor(
   branches: string[],
   /** Directory the project is scoped to; null = whole repo */
   scanPath: string | null,
+  /** Compliance framework id the project was onboarded with */
+  framework: string,
   pollIntervalSec: number,
   seed: MonitorSeed | null,
   onAnalyzed: (commit: AnalyzedCommit) => void,
@@ -104,7 +106,7 @@ export function useMonitor(
                 await client.getCommit(repo.owner, repo.repo, item.sha),
                 scanPath,
               )
-              const report = analyzeCommit(detail)
+              const report = analyzeCommit(detail, framework)
 
               // Feed the dependency graph backend; monitoring works fine without it.
               void recordCommitToGraph(
@@ -171,7 +173,7 @@ export function useMonitor(
         setPolling(false)
       }
     },
-    [client, repo, branches, scanPath],
+    [client, repo, branches, scanPath, framework],
   )
 
   // Initial fetch when a branch is newly selected, then poll on an interval.

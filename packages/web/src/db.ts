@@ -13,7 +13,7 @@ import type {
   GitProvider,
 } from '@fydo/core'
 
-export const FRAMEWORK_OWASP = 'owasp-top-10-2021'
+export { FRAMEWORK_OWASP, FRAMEWORK_MISRA } from '@fydo/core'
 
 export interface RepoRow {
   id: string

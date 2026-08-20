@@ -1,5 +1,6 @@
 // Quick sanity check of the analysis engine: run `node scripts/smoke-test.ts`
 import { analyzeCommit, parseAddedLines, statusForFindings } from '../src/compliance/analyzer.ts'
+import { FRAMEWORK_MISRA } from '../src/compliance/frameworks.ts'
 import type { CommitDetail } from '../src/github.ts'
 
 const patch = `@@ -1,4 +10,12 @@
@@ -64,4 +65,51 @@ if (findings.some((f) => f.snippet.includes('commented-out'))) {
   console.error('FAIL: comment line was not skipped')
   process.exit(1)
 }
+
+// ── MISRA C:2012 framework ──────────────────────────────────────────────────
+const cPatch = `@@ -1,3 +1,10 @@
+ #include "app.h"
++#include <stdio.h>
++char *buf = malloc(n);
++int flags = 0644;
++goto cleanup;
++size_t n = sizeof(i++);
++/* union in a comment should be skipped */
+ int main(void) {`
+
+const cDetail = {
+  sha: 'cafebabe',
+  commit: { message: 'misra test', author: { name: 't', date: '' } },
+  author: null,
+  html_url: '',
+  stats: { additions: 6, deletions: 0, total: 6 },
+  files: [
+    { filename: 'src/main.c', status: 'modified', additions: 6, deletions: 0, patch: cPatch },
+    // Non-C files must be skipped entirely under MISRA
+    { filename: 'src/app.ts', status: 'modified', additions: 6, deletions: 0, patch: cPatch },
+  ],
+} as CommitDetail
+
+const misraReport = analyzeCommit(cDetail, FRAMEWORK_MISRA)
+const misraHit = new Set(misraReport.findings.map((f) => f.ruleId))
+const misraExpected = ['M21.6', 'M21.3', 'M7.1', 'M15.1', 'M13.6']
+const misraMissing = misraExpected.filter((r) => !misraHit.has(r))
+if (misraMissing.length > 0) {
+  console.error(`MISSING expected MISRA rules: ${misraMissing.join(', ')}`)
+  process.exit(1)
+}
+const tsScan = misraReport.fileScans.find((f) => f.filename === 'src/app.ts')
+if (!tsScan || tsScan.scanned) {
+  console.error(`FAIL: non-C file should be skipped under MISRA: ${JSON.stringify(tsScan)}`)
+  process.exit(1)
+}
+if (misraReport.findings.some((f) => f.file === 'src/app.ts')) {
+  console.error('FAIL: MISRA findings reported for a non-C file')
+  process.exit(1)
+}
+console.log(`MISRA findings: ${misraReport.findings.length}`)
+for (const f of misraReport.findings) {
+  console.log(`  [${f.severity}] ${f.owaspId} ${f.ruleId} ${f.title} @ ${f.file}:${f.line}`)
+}
+
 console.log('smoke test passed')

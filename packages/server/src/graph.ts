@@ -1,4 +1,4 @@
-import { OWASP_CATEGORIES } from '@fydo/core'
+import { FRAMEWORKS } from '@fydo/core'
 import neo4j, { Driver } from 'neo4j-driver'
 import { config } from './config'
 import type { ParsedSymbol } from './parse'
@@ -118,11 +118,12 @@ export class Graph {
     ]
     for (const c of constraints) await this.run(c)
 
+    // Seed category nodes for every framework (label kept for graph compat).
     await this.run(
       `UNWIND $cats AS cat
        MERGE (o:OwaspCategory {id: cat.id})
        SET o.code = cat.code, o.name = cat.name, o.description = cat.description`,
-      { cats: OWASP_CATEGORIES },
+      { cats: FRAMEWORKS.flatMap((f) => f.categories) },
     )
   }
 
@@ -260,12 +261,13 @@ export class Graph {
              fd.line = row.line, fd.snippet = row.snippet
          MERGE (fd)-[:FOUND_IN]->(c)
          WITH fd, row
-         MATCH (o:OwaspCategory {id: row.owaspId})
-         MERGE (fd)-[:VIOLATES]->(o)
-         WITH fd, row
          MERGE (af:File {id: row.fileId})
          ON CREATE SET af.repo = $repo, af.path = row.file
-         MERGE (fd)-[:AFFECTS]->(af)`,
+         MERGE (fd)-[:AFFECTS]->(af)
+         WITH fd, row
+         OPTIONAL MATCH (o:OwaspCategory {id: row.owaspId})
+         FOREACH (cat IN CASE WHEN o IS NULL THEN [] ELSE [o] END |
+           MERGE (fd)-[:VIOLATES]->(cat))`,
         {
           repo,
           commitId,

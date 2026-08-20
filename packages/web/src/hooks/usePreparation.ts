@@ -21,7 +21,7 @@ export const STAGE_ORDER: StageId[] = ['graph', 'commits', 'ai', 'save']
 export const STAGE_LABELS: Record<StageId, string> = {
   graph: 'Building dependency graph',
   commits: 'Analyzing recent commits',
-  ai: 'AI security review',
+  ai: 'AI compliance review',
   save: 'Saving results',
 }
 
@@ -176,7 +176,7 @@ export function usePreparation(
           await client.getCommit(repo.owner, repo.repo, item.sha),
           scanPath,
         )
-        const report = analyzeCommit(detail)
+        const report = analyzeCommit(detail, framework)
         const commitStatus = statusForFindings(report.findings)
         const analyzed: AnalyzedCommit = {
           sha: detail.sha,
@@ -230,7 +230,7 @@ export function usePreparation(
         setStage('commits', { status: 'running', progress: { done, total } })
       }
     }
-  }, [client, repo, selectedBranches, scanPath, setStage])
+  }, [client, repo, selectedBranches, scanPath, framework, setStage])
 
   const runAiStage = useCallback(async () => {
     const targets = [...analyzedRef.current.values()].filter((c) => c.report)
@@ -248,12 +248,13 @@ export function usePreparation(
       const { review } = await requestAiReview(repo.provider, repo.fullName, accessToken, {
         commit: { message: commit.message, branch: commit.branch },
         report: commit.report!,
+        framework,
       })
       reviewsRef.current[commit.sha] = review
       done++
       setStage('ai', { status: 'running', progress: { done, total } })
     }
-  }, [repo, setStage])
+  }, [repo, framework, setStage])
 
   const runSaveStage = useCallback(async () => {
     const commits = [...analyzedRef.current.values()]

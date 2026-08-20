@@ -14,10 +14,12 @@ export interface ParsedFile {
 
 const TS_EXTENSIONS = /\.(ts|tsx|js|jsx|mjs|cjs)$/i
 const PY_EXTENSION = /\.py$/i
+const C_EXTENSIONS = /\.(c|h)$/i
 
-export function detectLanguage(path: string): 'typescript' | 'python' | null {
+export function detectLanguage(path: string): 'typescript' | 'python' | 'c' | null {
   if (TS_EXTENSIONS.test(path)) return 'typescript'
   if (PY_EXTENSION.test(path)) return 'python'
+  if (C_EXTENSIONS.test(path)) return 'c'
   return null
 }
 
@@ -26,6 +28,7 @@ export function parseFile(path: string, content: string): ParsedFile | null {
   const lang = detectLanguage(path)
   if (lang === 'typescript') return parseTypeScript(path, content)
   if (lang === 'python') return parsePython(content)
+  if (lang === 'c') return parseC(content)
   return null
 }
 
@@ -93,6 +96,39 @@ function parseTypeScript(path: string, content: string): ParsedFile {
     ts.forEachChild(node, visit)
   }
   visit(sourceFile)
+
+  return { importSpecifiers: [...importSpecifiers], symbols }
+}
+
+/** Quoted includes are project files; angle includes keep their brackets so
+ * the resolver can treat them as system/package headers. */
+const C_INCLUDE = /^\s*#\s*include\s*(?:"([^"]+)"|<([^>]+)>)/
+/** Heuristic for a function definition line: type tokens then name( with no
+ * trailing semicolon (prototypes are declarations, not the file's surface). */
+const C_FUNC_DEF = /^(?:static\s+|inline\s+|extern\s+)*(?:[A-Za-z_]\w*[\s*]+)+\*?([A-Za-z_]\w*)\s*\(/
+const C_CONTROL_KEYWORDS = new Set(['if', 'else', 'while', 'for', 'switch', 'return', 'sizeof', 'do'])
+
+function parseC(content: string): ParsedFile {
+  const importSpecifiers = new Set<string>()
+  const symbols: ParsedSymbol[] = []
+
+  for (const line of content.split('\n')) {
+    const include = C_INCLUDE.exec(line)
+    if (include) {
+      if (include[1]) importSpecifiers.add(include[1])
+      else importSpecifiers.add(`<${include[2]}>`)
+      continue
+    }
+    if (line.includes(';')) continue
+    const def = C_FUNC_DEF.exec(line)
+    if (def && !C_CONTROL_KEYWORDS.has(def[1])) {
+      symbols.push({
+        name: def[1],
+        kind: 'function',
+        exported: !/^\s*static\b/.test(line),
+      })
+    }
+  }
 
   return { importSpecifiers: [...importSpecifiers], symbols }
 }

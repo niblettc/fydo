@@ -69,6 +69,8 @@ export default function App() {
   const [repoRow, setRepoRow] = useState<RepoRow | null>(null)
   const [branches, setBranches] = useState<BranchInfo[]>([])
   const [selectedBranches, setSelectedBranches] = useState<string[]>([])
+  /** Compliance framework the active project is checked against */
+  const [framework, setFramework] = useState<string>(FRAMEWORK_OWASP)
   /** Raw directory-scope input from the wizard (or loaded from the project) */
   const [scanDir, setScanDir] = useState('')
   const [seed, setSeed] = useState<MonitorSeed | null>(null)
@@ -131,7 +133,7 @@ export default function App() {
     [savedRepos],
   )
 
-  const ai = useAiReviews(repo, repoRow?.id ?? null)
+  const ai = useAiReviews(repo, repoRow?.id ?? null, framework)
   const triage = useFindingOverrides(repoRow?.id ?? null)
 
   const repoRowRef = useRef(repoRow)
@@ -155,6 +157,7 @@ export default function App() {
     repo,
     selectedBranches,
     scanPath,
+    framework,
     pollInterval,
     seed,
     handleAnalyzed,
@@ -189,6 +192,7 @@ export default function App() {
         setRepoRow(row)
         setSelectedBranches(effective)
         setScanDir(row.scanPath ?? '')
+        setFramework(row.framework || FRAMEWORK_OWASP)
         setSeed({
           commits: commits.filter((c) => effective.includes(c.branch)),
           branches: effective,
@@ -242,6 +246,7 @@ export default function App() {
         setPrepResult(null)
         setSelectedBranches([info.defaultBranch])
         setScanDir('')
+        setFramework(FRAMEWORK_OWASP)
         setStep('framework')
       } catch (e) {
         if (provider === 'github' && e instanceof GitHubError && e.status === 401) {
@@ -273,6 +278,7 @@ export default function App() {
       setPrepResult(result)
       setRepoRow(result.repoRow)
       setScanDir(result.repoRow.scanPath ?? '')
+      setFramework(result.repoRow.framework || FRAMEWORK_OWASP)
       setSeed({ commits: result.commits, branches: result.repoRow.selectedBranches })
       ai.hydrate(result.reviews)
       setSavedRepos((prev) => [
@@ -310,6 +316,7 @@ export default function App() {
     setBranches([])
     setSelectedBranches([])
     setScanDir('')
+    setFramework(FRAMEWORK_OWASP)
     setSeed(null)
     setPrepResult(null)
     setConnectError(null)
@@ -532,7 +539,12 @@ export default function App() {
         onSignOut={signOut}
         onCancel={wizardCancel}
       >
-        <FrameworkStep onBack={startNewProject} onContinue={() => setStep('branches')} />
+        <FrameworkStep
+          framework={framework}
+          onChange={setFramework}
+          onBack={startNewProject}
+          onContinue={() => setStep('branches')}
+        />
       </WizardShell>
     )
   }
@@ -571,7 +583,7 @@ export default function App() {
           client={clientFor(repo.provider) ?? client}
           repo={repo}
           selectedBranches={selectedBranches}
-          framework={FRAMEWORK_OWASP}
+          framework={framework}
           scanPath={scanPath}
           onComplete={handlePrepared}
           onBack={() => setStep('branches')}
@@ -767,7 +779,7 @@ export default function App() {
             token={activeClient?.getToken() ?? ''}
             scanPath={scanPath}
           />
-          <BaselinePanel openFindings={openFindings} />
+          <BaselinePanel openFindings={openFindings} framework={framework} />
         </aside>
         <div className="feed-column">
           <div className="feed-tabs" role="tablist">
@@ -807,6 +819,7 @@ export default function App() {
               hasBranches={selectedBranches.length > 0}
               ai={ai}
               views={views}
+              framework={framework}
               onTriage={triage.setStatus}
               summary={stats.commits}
               filter={commitFilter}

@@ -120,7 +120,10 @@ app.post<{ Params: RepoParams; Body: CommitPayload & { scanPath?: string } }>(
   },
 )
 
-app.post<{ Params: RepoParams; Body: { commit: ReviewCommitInput; report: AnalysisReport } }>(
+app.post<{
+  Params: RepoParams
+  Body: { commit: ReviewCommitInput; report: AnalysisReport; framework?: string }
+}>(
   '/api/repos/:provider/:project/reviews',
   async (req, reply) => {
     if (!supabaseConfigured()) {
@@ -134,7 +137,7 @@ app.post<{ Params: RepoParams; Body: { commit: ReviewCommitInput; report: Analys
       return reply.code(503).send({ error: 'Server is missing ANTHROPIC_API_KEY.' })
     }
 
-    const { commit, report } = req.body ?? {}
+    const { commit, report, framework } = req.body ?? {}
     if (!commit || typeof commit.message !== 'string' || !report || !Array.isArray(report.fileScans)) {
       return reply.code(400).send({ error: 'body must include "commit" and "report"' })
     }
@@ -155,7 +158,7 @@ app.post<{ Params: RepoParams; Body: { commit: ReviewCommitInput; report: Analys
       }
     }
 
-    const review = await reviewCommit(config.anthropicApiKey, commit, report, impactContext)
+    const review = await reviewCommit(config.anthropicApiKey, commit, report, impactContext, framework)
     return { review }
   },
 )
@@ -188,7 +191,7 @@ app.post<{ Params: RepoParams; Body: { paths: string[] } }>(
 
 try {
   await graph.init()
-  app.log.info('Neo4j constraints and OWASP categories initialized')
+  app.log.info('Neo4j constraints and baseline categories initialized')
 } catch (e) {
   app.log.warn(
     `Could not initialize Neo4j (${String(e)}). Start Neo4j (docker compose up -d) and restart the server.`,

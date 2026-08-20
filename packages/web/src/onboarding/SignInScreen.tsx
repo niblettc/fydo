@@ -39,8 +39,8 @@ export function SignInScreen({ mode, onSignIn, onSignOut }: Props) {
         <h1>Commit Sentinel</h1>
         {mode === 'signin' ? (
           <p className="connect-sub">
-            Watch commits land on the branches you choose, check every change against the OWASP
-            Top 10, and get an AI security review of each one.
+            Watch commits land on the branches you choose, check every change against your
+            compliance baseline — OWASP Top 10 or MISRA C:2012 — and get an AI review of each one.
           </p>
         ) : (
           <p className="connect-sub">

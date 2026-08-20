@@ -16,7 +16,31 @@ export class ImportResolver {
 
   resolve(fromFile: string, specifier: string, language: string): ResolvedImport | null {
     if (language === 'python') return this.resolvePython(fromFile, specifier)
+    if (language === 'c') return this.resolveC(fromFile, specifier)
     return this.resolveTypeScript(fromFile, specifier)
+  }
+
+  /** C includes: <system.h> is external; "header.h" resolves relative to the
+   * including file, then repo-root-relative, then by unique path suffix
+   * (covers -I include directories without knowing the build flags). */
+  private resolveC(fromFile: string, specifier: string): ResolvedImport | null {
+    if (specifier.startsWith('<')) {
+      const name = specifier.slice(1, -1)
+      return name ? { type: 'package', name } : null
+    }
+    const relative = path.normalize(path.join(path.dirname(fromFile), specifier))
+    if (this.files.has(relative)) return { type: 'file', path: relative }
+    const fromRoot = path.normalize(specifier)
+    if (this.files.has(fromRoot)) return { type: 'file', path: fromRoot }
+    const suffix = `/${specifier}`
+    const matches: string[] = []
+    for (const f of this.files) {
+      if (f.endsWith(suffix)) {
+        matches.push(f)
+        if (matches.length > 1) break
+      }
+    }
+    return matches.length === 1 ? { type: 'file', path: matches[0] } : null
   }
 
   private resolveTypeScript(fromFile: string, specifier: string): ResolvedImport | null {
