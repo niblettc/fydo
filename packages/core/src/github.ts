@@ -55,7 +55,14 @@ export interface GitClient {
   getToken(): string
   getRepo(owner: string, repo: string): Promise<RepoInfo>
   getBranches(owner: string, repo: string): Promise<BranchInfo[]>
-  getCommits(owner: string, repo: string, branch: string, perPage?: number): Promise<CommitListItem[]>
+  /** `path` limits results to commits touching that directory */
+  getCommits(
+    owner: string,
+    repo: string,
+    branch: string,
+    perPage?: number,
+    path?: string,
+  ): Promise<CommitListItem[]>
   getCommit(owner: string, repo: string, sha: string): Promise<CommitDetail>
   getTree(owner: string, repo: string, ref: string): Promise<{ entries: TreeEntry[]; truncated: boolean }>
   getBlob(owner: string, repo: string, sha: string): Promise<string>
@@ -190,9 +197,11 @@ export class GitHubClient implements GitClient {
     repo: string,
     branch: string,
     perPage = 10,
+    path?: string,
   ): Promise<CommitListItem[]> {
+    const pathParam = path ? `&path=${encodeURIComponent(path)}` : ''
     return this.request<CommitListItem[]>(
-      `/repos/${owner}/${repo}/commits?sha=${encodeURIComponent(branch)}&per_page=${perPage}`,
+      `/repos/${owner}/${repo}/commits?sha=${encodeURIComponent(branch)}&per_page=${perPage}${pathParam}`,
     )
   }
 

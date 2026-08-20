@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { analyzeCommit, statusForFindings } from '@fydo/core'
+import { analyzeCommit, scopeCommitDetail, statusForFindings } from '@fydo/core'
 import type { AiReview, AnalyzedCommit, GitClient, RepoInfo } from '@fydo/core'
 import {
   fetchGraphStatus,
@@ -77,6 +77,8 @@ export function usePreparation(
   repo: RepoInfo,
   selectedBranches: string[],
   framework: string,
+  /** Directory the project is scoped to; null = whole repo */
+  scanPath: string | null,
 ): PreparationState {
   const [stages, setStages] = useState<Record<StageId, StageState>>(initialStages)
   const [status, setStatus] = useState<PreparationState['status']>('idle')
@@ -108,7 +110,7 @@ export function usePreparation(
 
     if (!alreadyIngested && graphStatus.job?.state !== 'running') {
       try {
-        await startGraphIngest(repo.provider, repo.fullName, client.getToken())
+        await startGraphIngest(repo.provider, repo.fullName, client.getToken(), scanPath)
       } catch (e) {
         throw friendlyGraphError(e)
       }
@@ -136,16 +138,26 @@ export function usePreparation(
     }
 
     if (!graphStatus.ingestedSha || graphStatus.stats.files === 0) {
-      throw new Error('Graph build finished but produced no files. Retry the build.')
+      throw new Error(
+        scanPath
+          ? `Graph build found no supported source files under "${scanPath}". Check the directory path and retry.`
+          : 'Graph build finished but produced no files. Retry the build.',
+      )
     }
     graphShaRef.current = graphStatus.ingestedSha
     graphStatsRef.current = graphStatus.stats
-  }, [client, repo, setStage])
+  }, [client, repo, scanPath, setStage])
 
   const runCommitsStage = useCallback(async () => {
     const perBranch: Array<{ branch: string; shas: Array<{ sha: string }> }> = []
     for (const branch of selectedBranches) {
-      const list = await client.getCommits(repo.owner, repo.repo, branch, COMMITS_PER_BRANCH)
+      const list = await client.getCommits(
+        repo.owner,
+        repo.repo,
+        branch,
+        COMMITS_PER_BRANCH,
+        scanPath ?? undefined,
+      )
       perBranch.push({ branch, shas: list })
     }
     const total = perBranch.reduce((n, b) => n + b.shas.length, 0)
@@ -160,7 +172,10 @@ export function usePreparation(
           setStage('commits', { status: 'running', progress: { done, total } })
           continue
         }
-        const detail = await client.getCommit(repo.owner, repo.repo, item.sha)
+        const detail = scopeCommitDetail(
+          await client.getCommit(repo.owner, repo.repo, item.sha),
+          scanPath,
+        )
         const report = analyzeCommit(detail)
         const commitStatus = statusForFindings(report.findings)
         const analyzed: AnalyzedCommit = {
@@ -181,35 +196,41 @@ export function usePreparation(
         analyzedRef.current.set(key, analyzed)
 
         // Feed the graph; best-effort since the ingest already succeeded.
-        void recordCommitToGraph(repo.provider, repo.fullName, client.getToken(), {
-          sha: analyzed.sha,
-          branch,
-          message: analyzed.message,
-          author: analyzed.author,
-          date: analyzed.date,
-          status: commitStatus,
-          files: (detail.files ?? []).map((f) => ({
-            path: f.filename,
-            status: f.status,
-            additions: f.additions,
-            deletions: f.deletions,
-          })),
-          findings: report.findings.map((f) => ({
-            ruleId: f.ruleId,
-            owaspId: f.owaspId,
-            severity: f.severity,
-            title: f.title,
-            file: f.file,
-            line: f.line,
-            snippet: f.snippet,
-          })),
-        }).catch(() => {})
+        void recordCommitToGraph(
+          repo.provider,
+          repo.fullName,
+          client.getToken(),
+          {
+            sha: analyzed.sha,
+            branch,
+            message: analyzed.message,
+            author: analyzed.author,
+            date: analyzed.date,
+            status: commitStatus,
+            files: (detail.files ?? []).map((f) => ({
+              path: f.filename,
+              status: f.status,
+              additions: f.additions,
+              deletions: f.deletions,
+            })),
+            findings: report.findings.map((f) => ({
+              ruleId: f.ruleId,
+              owaspId: f.owaspId,
+              severity: f.severity,
+              title: f.title,
+              file: f.file,
+              line: f.line,
+              snippet: f.snippet,
+            })),
+          },
+          scanPath,
+        ).catch(() => {})
 
         done++
         setStage('commits', { status: 'running', progress: { done, total } })
       }
     }
-  }, [client, repo, selectedBranches, setStage])
+  }, [client, repo, selectedBranches, scanPath, setStage])
 
   const runAiStage = useCallback(async () => {
     const targets = [...analyzedRef.current.values()].filter((c) => c.report)
@@ -243,6 +264,7 @@ export function usePreparation(
       selectedBranches,
       framework,
       graphIngestedSha: graphShaRef.current,
+      scanPath,
       onboarded: true,
     })
     await saveCommitAnalyses(row.id, commits)
@@ -253,7 +275,7 @@ export function usePreparation(
       repoRow: row,
       graphStats: graphStatsRef.current,
     })
-  }, [repo, selectedBranches, framework])
+  }, [repo, selectedBranches, framework, scanPath])
 
   const stageRunners: Record<StageId, () => Promise<void>> = {
     graph: runGraphStage,

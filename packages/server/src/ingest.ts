@@ -1,4 +1,4 @@
-import { createGitClient, splitFullName } from '@fydo/core'
+import { createGitClient, isInScanPath, splitFullName } from '@fydo/core'
 import type { GitProvider } from '@fydo/core'
 import { config } from './config'
 import type { Graph, IngestedFile } from './graph'
@@ -30,6 +30,8 @@ export function startIngest(
   fullName: string,
   graphKey: string,
   token: string,
+  /** Optional directory the project is scoped to (monorepo products) */
+  scanPath: string | null = null,
 ): IngestJob {
   const existing = jobs.get(graphKey)
   if (existing?.state === 'running') return existing
@@ -46,7 +48,7 @@ export function startIngest(
   }
   jobs.set(graphKey, job)
 
-  void runIngest(graph, provider, fullName, graphKey, token, job).catch((e: unknown) => {
+  void runIngest(graph, provider, fullName, graphKey, token, scanPath, job).catch((e: unknown) => {
     job.state = 'error'
     job.error = e instanceof Error ? e.message : String(e)
     job.finishedAt = new Date().toISOString()
@@ -61,6 +63,7 @@ async function runIngest(
   fullName: string,
   graphKey: string,
   token: string,
+  scanPath: string | null,
   job: IngestJob,
 ) {
   const [owner, repo] = splitFullName(fullName)
@@ -79,6 +82,7 @@ async function runIngest(
     .filter(
       (e) =>
         e.type === 'blob' &&
+        isInScanPath(e.path, scanPath) &&
         detectLanguage(e.path) !== null &&
         !IGNORED_PATHS.test(e.path) &&
         (e.size ?? 0) <= config.ingest.maxFileBytes,
@@ -106,8 +110,13 @@ async function runIngest(
         const packages = new Set<string>()
         for (const spec of parsed.importSpecifiers) {
           const resolved = resolver.resolve(entry.path, spec, language)
-          if (resolved?.type === 'file') imports.push(resolved.path)
-          else if (resolved?.type === 'package') packages.add(resolved.name)
+          // Imports leaving the scan path would create stub nodes for files
+          // that were never ingested, so keep only in-scope edges.
+          if (resolved?.type === 'file' && isInScanPath(resolved.path, scanPath)) {
+            imports.push(resolved.path)
+          } else if (resolved?.type === 'package') {
+            packages.add(resolved.name)
+          }
         }
         ingested.push({
           path: entry.path,
@@ -143,10 +152,13 @@ export async function refreshFiles(
   token: string,
   paths: string[],
   ref: string,
+  scanPath: string | null = null,
 ) {
   const [owner, repo] = splitFullName(fullName)
   const gh = createGitClient(provider, token)
-  const sourcePaths = paths.filter((p) => detectLanguage(p) !== null && !IGNORED_PATHS.test(p))
+  const sourcePaths = paths.filter(
+    (p) => isInScanPath(p, scanPath) && detectLanguage(p) !== null && !IGNORED_PATHS.test(p),
+  )
   if (sourcePaths.length === 0) return
 
   const { entries } = await gh.getTree(owner, repo, ref)
@@ -165,8 +177,11 @@ export async function refreshFiles(
     const packages = new Set<string>()
     for (const spec of parsed.importSpecifiers) {
       const resolved = resolver.resolve(path, spec, language)
-      if (resolved?.type === 'file') imports.push(resolved.path)
-      else if (resolved?.type === 'package') packages.add(resolved.name)
+      if (resolved?.type === 'file' && isInScanPath(resolved.path, scanPath)) {
+        imports.push(resolved.path)
+      } else if (resolved?.type === 'package') {
+        packages.add(resolved.name)
+      }
     }
     ingested.push({
       path,

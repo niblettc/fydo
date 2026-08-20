@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
-import { GitHubClient, GitHubError, GitLabClient, splitFullName } from '@fydo/core'
+import { GitHubClient, GitHubError, GitLabClient, normalizeScanPath, splitFullName } from '@fydo/core'
 import type {
   AnalyzedCommit,
   BranchInfo,
@@ -59,6 +59,8 @@ export default function App() {
   const [repoRow, setRepoRow] = useState<RepoRow | null>(null)
   const [branches, setBranches] = useState<BranchInfo[]>([])
   const [selectedBranches, setSelectedBranches] = useState<string[]>([])
+  /** Raw directory-scope input from the wizard (or loaded from the project) */
+  const [scanDir, setScanDir] = useState('')
   const [seed, setSeed] = useState<MonitorSeed | null>(null)
   const [prepResult, setPrepResult] = useState<PreparationResult | null>(null)
   const [connecting, setConnecting] = useState(false)
@@ -93,6 +95,9 @@ export default function App() {
 
   /** Client for whichever repo is currently open (dashboard + monitor) */
   const activeClient = repo ? clientFor(repo.provider) : client
+
+  /** Directory the project is scoped to; null = whole repo */
+  const scanPath = useMemo(() => normalizeScanPath(scanDir), [scanDir])
 
   useEffect(() => {
     if (!auth.session) {
@@ -135,6 +140,7 @@ export default function App() {
     activeClient,
     repo,
     selectedBranches,
+    scanPath,
     pollInterval,
     seed,
     handleAnalyzed,
@@ -166,6 +172,7 @@ export default function App() {
         setBranches(branchList)
         setRepoRow(row)
         setSelectedBranches(effective)
+        setScanDir(row.scanPath ?? '')
         setSeed({
           commits: commits.filter((c) => effective.includes(c.branch)),
           branches: effective,
@@ -218,6 +225,7 @@ export default function App() {
         setSeed(null)
         setPrepResult(null)
         setSelectedBranches([info.defaultBranch])
+        setScanDir('')
         setStep('framework')
       } catch (e) {
         if (provider === 'github' && e instanceof GitHubError && e.status === 401) {
@@ -248,6 +256,7 @@ export default function App() {
     (result: PreparationResult) => {
       setPrepResult(result)
       setRepoRow(result.repoRow)
+      setScanDir(result.repoRow.scanPath ?? '')
       setSeed({ commits: result.commits, branches: result.repoRow.selectedBranches })
       ai.hydrate(result.reviews)
       setSavedRepos((prev) => [
@@ -284,6 +293,7 @@ export default function App() {
     setRepoRow(null)
     setBranches([])
     setSelectedBranches([])
+    setScanDir('')
     setSeed(null)
     setPrepResult(null)
     setConnectError(null)
@@ -494,6 +504,8 @@ export default function App() {
           selected={selectedBranches}
           defaultBranch={repo.defaultBranch}
           onChange={setSelectedBranches}
+          scanDir={scanDir}
+          onScanDirChange={setScanDir}
           onBack={() => setStep('framework')}
           onContinue={() => setStep('preparing')}
         />
@@ -513,6 +525,7 @@ export default function App() {
           repo={repo}
           selectedBranches={selectedBranches}
           framework={FRAMEWORK_OWASP}
+          scanPath={scanPath}
           onComplete={handlePrepared}
           onBack={() => setStep('branches')}
         />
@@ -567,6 +580,14 @@ export default function App() {
                 ↗
               </a>
               {repo.private && <span className="badge neutral small">private</span>}
+              {scanPath && (
+                <span
+                  className="badge neutral small mono"
+                  title="Only commits touching this directory are scanned"
+                >
+                  {scanPath}/
+                </span>
+              )}
             </div>
             <div className="muted small-text">
               {monitor.polling
@@ -676,6 +697,7 @@ export default function App() {
             provider={repo.provider}
             fullName={repo.fullName}
             token={activeClient?.getToken() ?? ''}
+            scanPath={scanPath}
           />
           <BaselinePanel openFindings={openFindings} />
         </aside>

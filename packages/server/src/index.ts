@@ -7,6 +7,7 @@ import { config } from './config'
 import { Graph } from './graph'
 import type { CommitPayload } from './graph'
 import { getJob, refreshFiles, startIngest } from './ingest'
+import { normalizeScanPath } from '@fydo/core'
 import type { AnalysisReport, GitProvider } from '@fydo/core'
 
 const app = Fastify({ logger: true })
@@ -60,12 +61,23 @@ app.get('/api/health', async () => {
   }
 })
 
-app.post<{ Params: RepoParams }>('/api/repos/:provider/:project/ingest', async (req, reply) => {
-  const ref = repoRef(req.params)
-  if (!ref) return reply.code(400).send({ error: 'unknown provider' })
-  const job = startIngest(graph, ref.provider, ref.fullName, ref.graphKey, tokenFrom(req.headers, ref.provider))
-  return { job }
-})
+app.post<{ Params: RepoParams; Body: { scanPath?: string } | null }>(
+  '/api/repos/:provider/:project/ingest',
+  async (req, reply) => {
+    const ref = repoRef(req.params)
+    if (!ref) return reply.code(400).send({ error: 'unknown provider' })
+    const scanPath = normalizeScanPath(req.body?.scanPath)
+    const job = startIngest(
+      graph,
+      ref.provider,
+      ref.fullName,
+      ref.graphKey,
+      tokenFrom(req.headers, ref.provider),
+      scanPath,
+    )
+    return { job }
+  },
+)
 
 app.get<{ Params: RepoParams }>('/api/repos/:provider/:project/status', async (req, reply) => {
   const ref = repoRef(req.params)
@@ -77,12 +89,13 @@ app.get<{ Params: RepoParams }>('/api/repos/:provider/:project/status', async (r
   return { job: getJob(ref.graphKey), ingestedSha: meta?.ingestedSha ?? null, stats }
 })
 
-app.post<{ Params: RepoParams; Body: CommitPayload }>(
+app.post<{ Params: RepoParams; Body: CommitPayload & { scanPath?: string } }>(
   '/api/repos/:provider/:project/commits',
   async (req, reply) => {
     const ref = repoRef(req.params)
     if (!ref) return reply.code(400).send({ error: 'unknown provider' })
-    const payload = req.body
+    const { scanPath: rawScanPath, ...payload } = req.body
+    const scanPath = normalizeScanPath(rawScanPath)
     await graph.recordCommit(ref.graphKey, payload)
 
     // Refresh dependency edges for the changed source files in the background;
@@ -98,6 +111,7 @@ app.post<{ Params: RepoParams; Body: CommitPayload }>(
       tokenFrom(req.headers, ref.provider),
       changedPaths,
       payload.sha,
+      scanPath,
     ).catch((e: unknown) => {
       app.log.warn(`import refresh failed for ${ref.graphKey}@${payload.sha}: ${String(e)}`)
     })

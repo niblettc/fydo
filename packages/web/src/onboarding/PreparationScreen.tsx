@@ -8,6 +8,8 @@ interface Props {
   repo: RepoInfo
   selectedBranches: string[]
   framework: string
+  /** Directory the project is scoped to; null = whole repo */
+  scanPath: string | null
   onComplete: (result: PreparationResult) => void
   onBack: () => void
 }
@@ -29,10 +31,11 @@ export function PreparationScreen({
   repo,
   selectedBranches,
   framework,
+  scanPath,
   onComplete,
   onBack,
 }: Props) {
-  const prep = usePreparation(client, repo, selectedBranches, framework)
+  const prep = usePreparation(client, repo, selectedBranches, framework, scanPath)
   const startedRef = useRef(false)
   const completedRef = useRef(false)
 

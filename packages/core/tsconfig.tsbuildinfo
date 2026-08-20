@@ -1,1 +1,1 @@
-{"root":["./src/github.ts","./src/gitlab.ts","./src/index.ts","./src/types.ts","./src/urls.ts","./src/compliance/analyzer.ts","./src/compliance/merge.ts","./src/compliance/owasp.ts","./scripts/gitlab-smoke.ts","./scripts/smoke-test.ts"],"version":"6.0.3"}
+{"root":["./src/github.ts","./src/gitlab.ts","./src/index.ts","./src/scope.ts","./src/types.ts","./src/urls.ts","./src/compliance/analyzer.ts","./src/compliance/merge.ts","./src/compliance/owasp.ts","./scripts/gitlab-smoke.ts","./scripts/smoke-test.ts"],"version":"6.0.3"}

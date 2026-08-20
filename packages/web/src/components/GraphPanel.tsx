@@ -7,9 +7,11 @@ interface Props {
   provider: GitProvider
   fullName: string
   token: string
+  /** Directory the project is scoped to; null = whole repo */
+  scanPath: string | null
 }
 
-export function GraphPanel({ provider, fullName, token }: Props) {
+export function GraphPanel({ provider, fullName, token, scanPath }: Props) {
   const [status, setStatus] = useState<GraphStatus | null>(null)
   const [backendDown, setBackendDown] = useState(false)
   const [starting, setStarting] = useState(false)
@@ -48,7 +50,7 @@ export function GraphPanel({ provider, fullName, token }: Props) {
   async function build() {
     setStarting(true)
     try {
-      await startGraphIngest(provider, fullName, token)
+      await startGraphIngest(provider, fullName, token, scanPath)
       await refresh()
     } catch {
       setBackendDown(true)

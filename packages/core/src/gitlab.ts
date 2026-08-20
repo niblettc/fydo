@@ -153,7 +153,9 @@ export class GitLabClient implements GitClient {
     repo: string,
     branch: string,
     perPage = 10,
+    path?: string,
   ): Promise<CommitListItem[]> {
+    const pathParam = path ? `&path=${encodeURIComponent(path)}` : ''
     const data = await this.request<
       Array<{
         id: string
@@ -163,7 +165,7 @@ export class GitLabClient implements GitClient {
         web_url: string
       }>
     >(
-      `/projects/${projectId(owner, repo)}/repository/commits?ref_name=${encodeURIComponent(branch)}&per_page=${perPage}`,
+      `/projects/${projectId(owner, repo)}/repository/commits?ref_name=${encodeURIComponent(branch)}&per_page=${perPage}${pathParam}`,
     )
     return data.map((c) => ({
       sha: c.id,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { analyzeCommit, statusForFindings } from '@fydo/core'
+import { analyzeCommit, scopeCommitDetail, statusForFindings } from '@fydo/core'
 import type { GitClient } from '@fydo/core'
 import type { AnalyzedCommit, RepoInfo } from '@fydo/core'
 import { recordCommitToGraph } from '../backend'
@@ -31,6 +31,8 @@ export function useMonitor(
   client: GitClient | null,
   repo: RepoInfo | null,
   branches: string[],
+  /** Directory the project is scoped to; null = whole repo */
+  scanPath: string | null,
   pollIntervalSec: number,
   seed: MonitorSeed | null,
   onAnalyzed: (commit: AnalyzedCommit) => void,
@@ -67,7 +69,13 @@ export function useMonitor(
           const perPage = isInitialForBranch(branch)
             ? INITIAL_COMMITS_PER_BRANCH
             : POLL_COMMITS_PER_BRANCH
-          const list = await client.getCommits(repo.owner, repo.repo, branch, perPage)
+          const list = await client.getCommits(
+            repo.owner,
+            repo.repo,
+            branch,
+            perPage,
+            scanPath ?? undefined,
+          )
           const fresh = list.filter((c) => !seenRef.current.has(commitKey(branch, c.sha)))
 
           for (const item of fresh) {
@@ -90,33 +98,42 @@ export function useMonitor(
             setCommits((prev) => [placeholder, ...prev])
 
             try {
-              const detail = await client.getCommit(repo.owner, repo.repo, item.sha)
+              const detail = scopeCommitDetail(
+                await client.getCommit(repo.owner, repo.repo, item.sha),
+                scanPath,
+              )
               const report = analyzeCommit(detail)
 
               // Feed the dependency graph backend; monitoring works fine without it.
-              void recordCommitToGraph(repo.provider, repo.fullName, client.getToken(), {
-                sha: item.sha,
-                branch,
-                message: placeholder.message,
-                author: placeholder.author,
-                date: placeholder.date,
-                status: statusForFindings(report.findings),
-                files: (detail.files ?? []).map((f) => ({
-                  path: f.filename,
-                  status: f.status,
-                  additions: f.additions,
-                  deletions: f.deletions,
-                })),
-                findings: report.findings.map((f) => ({
-                  ruleId: f.ruleId,
-                  owaspId: f.owaspId,
-                  severity: f.severity,
-                  title: f.title,
-                  file: f.file,
-                  line: f.line,
-                  snippet: f.snippet,
-                })),
-              }).catch(() => {
+              void recordCommitToGraph(
+                repo.provider,
+                repo.fullName,
+                client.getToken(),
+                {
+                  sha: item.sha,
+                  branch,
+                  message: placeholder.message,
+                  author: placeholder.author,
+                  date: placeholder.date,
+                  status: statusForFindings(report.findings),
+                  files: (detail.files ?? []).map((f) => ({
+                    path: f.filename,
+                    status: f.status,
+                    additions: f.additions,
+                    deletions: f.deletions,
+                  })),
+                  findings: report.findings.map((f) => ({
+                    ruleId: f.ruleId,
+                    owaspId: f.owaspId,
+                    severity: f.severity,
+                    title: f.title,
+                    file: f.file,
+                    line: f.line,
+                    snippet: f.snippet,
+                  })),
+                },
+                scanPath,
+              ).catch(() => {
                 /* backend offline — graph features simply unavailable */
               })
 
@@ -152,7 +169,7 @@ export function useMonitor(
         setPolling(false)
       }
     },
-    [client, repo, branches],
+    [client, repo, branches, scanPath],
   )
 
   // Initial fetch when a branch is newly selected, then poll on an interval.

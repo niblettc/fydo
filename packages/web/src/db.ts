@@ -23,6 +23,8 @@ export interface RepoRow {
   selectedBranches: string[]
   framework: string
   graphIngestedSha: string | null
+  /** Directory the project is scoped to; null = whole repo */
+  scanPath: string | null
   onboardedAt: string | null
 }
 
@@ -34,6 +36,7 @@ interface RepoRecord {
   selected_branches: string[]
   framework: string
   graph_ingested_sha: string | null
+  scan_path: string | null
   onboarded_at: string | null
 }
 
@@ -46,12 +49,13 @@ function mapRepo(r: RepoRecord): RepoRow {
     selectedBranches: r.selected_branches,
     framework: r.framework,
     graphIngestedSha: r.graph_ingested_sha,
+    scanPath: r.scan_path,
     onboardedAt: r.onboarded_at,
   }
 }
 
 const REPO_COLUMNS =
-  'id, provider, full_name, default_branch, selected_branches, framework, graph_ingested_sha, onboarded_at'
+  'id, provider, full_name, default_branch, selected_branches, framework, graph_ingested_sha, scan_path, onboarded_at'
 
 export async function fetchMyRepos(): Promise<RepoRow[]> {
   const { data, error } = await supabase
@@ -69,6 +73,7 @@ export async function upsertRepo(opts: {
   selectedBranches: string[]
   framework: string
   graphIngestedSha: string | null
+  scanPath: string | null
   onboarded: boolean
 }): Promise<RepoRow> {
   const { data: userData, error: userError } = await supabase.auth.getUser()
@@ -85,6 +90,7 @@ export async function upsertRepo(opts: {
         selected_branches: opts.selectedBranches,
         framework: opts.framework,
         graph_ingested_sha: opts.graphIngestedSha,
+        scan_path: opts.scanPath,
         ...(opts.onboarded ? { onboarded_at: new Date().toISOString() } : {}),
       },
       { onConflict: 'user_id,provider,full_name' },

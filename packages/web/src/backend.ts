@@ -100,10 +100,15 @@ export function startGraphIngest(
   provider: GitProvider,
   fullName: string,
   token: string,
+  scanPath: string | null = null,
 ): Promise<{ job: IngestJob }> {
   return api<{ job: IngestJob }>(`${repoPath(provider, fullName)}/ingest`, {
     method: 'POST',
-    headers: token ? { 'X-Git-Token': token } : {},
+    headers: {
+      'content-type': 'application/json',
+      ...(token ? { 'X-Git-Token': token } : {}),
+    },
+    body: JSON.stringify({ scanPath: scanPath ?? undefined }),
   })
 }
 
@@ -112,6 +117,7 @@ export function recordCommitToGraph(
   fullName: string,
   token: string,
   payload: CommitRecord,
+  scanPath: string | null = null,
 ): Promise<{ recorded: boolean }> {
   return api<{ recorded: boolean }>(`${repoPath(provider, fullName)}/commits`, {
     method: 'POST',
@@ -119,7 +125,7 @@ export function recordCommitToGraph(
       'content-type': 'application/json',
       ...(token ? { 'X-Git-Token': token } : {}),
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, scanPath: scanPath ?? undefined }),
   })
 }
 
