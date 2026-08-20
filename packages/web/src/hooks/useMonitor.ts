@@ -13,6 +13,8 @@ export interface MonitorState {
   polling: boolean
   error: string | null
   refresh: () => void
+  /** Forget everything and re-fetch + re-analyze (scanner and AI) from scratch */
+  rerun: () => void
 }
 
 /** Commits already analyzed during onboarding (or hydrated from Supabase),
@@ -191,5 +193,16 @@ export function useMonitor(
     void poll(() => false)
   }, [poll])
 
-  return { commits, lastPolledAt, polling, error, refresh }
+  /** Drops seen-commit tracking and the current feed, then does a fresh
+   * initial fetch. Each re-analyzed commit flows through onAnalyzed again,
+   * so persistence (upsert) and AI reviews also re-run. */
+  const rerun = useCallback(() => {
+    seenRef.current = new Set()
+    initializedBranchesRef.current = new Set()
+    setCommits([])
+    setError(null)
+    void poll(() => true)
+  }, [poll])
+
+  return { commits, lastPolledAt, polling, error, refresh, rerun }
 }

@@ -348,6 +348,17 @@ export default function App() {
     void auth.signOut()
   }, [auth, startNewProject])
 
+  /** Full re-analysis of the latest commits on the selected branches. Confirmed
+   * because it also re-runs AI reviews, which cost tokens and replace existing
+   * verdicts (manual triage decisions are keyed by finding and survive). */
+  const rerunAnalysis = useCallback(() => {
+    const confirmed = window.confirm(
+      `Re-run analysis for ${repo?.fullName ?? 'this project'}?\n\nThe latest commits on the selected branches are re-fetched, re-scanned, and re-reviewed by AI, replacing the stored results.`,
+    )
+    if (!confirmed) return
+    monitor.rerun()
+  }, [repo?.fullName, monitor.rerun])
+
   /** Unified view (scanner + AI + manual triage) per feed entry */
   const views = useMemo(() => {
     const map = new Map<string, CommitView>()
@@ -621,6 +632,14 @@ export default function App() {
           )}
           <button className="btn" onClick={monitor.refresh} disabled={monitor.polling}>
             Check now
+          </button>
+          <button
+            className="btn"
+            onClick={rerunAnalysis}
+            disabled={monitor.polling}
+            title="Re-fetch the latest commits and redo the scanner analysis and AI reviews"
+          >
+            Re-run analysis
           </button>
           <button className="btn subtle" onClick={signOut}>
             Sign out
